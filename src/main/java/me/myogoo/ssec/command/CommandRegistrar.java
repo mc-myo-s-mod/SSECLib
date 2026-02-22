@@ -30,6 +30,11 @@ import me.myogoo.ssec.command.argument.SSCDoubleArgument;
 import me.myogoo.ssec.command.argument.SSCFloatArgument;
 import me.myogoo.ssec.command.argument.SSCBooleanArgument;
 import me.myogoo.ssec.command.argument.SSCStringArgument;
+import me.myogoo.ssec.command.argument.SSCVec3Argument;
+import me.myogoo.ssec.command.argument.SSCEntityArgument;
+
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.Entity;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +55,8 @@ public class CommandRegistrar {
         registerAdapter(boolean.class, new SSCBooleanArgument());
         registerAdapter(Boolean.class, new SSCBooleanArgument());
         registerAdapter(String.class, new SSCStringArgument());
+        registerAdapter(Vec3.class, new SSCVec3Argument());
+        registerAdapter(Entity.class, new SSCEntityArgument());
     }
 
     /**
