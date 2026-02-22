@@ -317,27 +317,36 @@ public class CommandRegistrar {
         }
 
         // Handle permissions
+        SSCPermission permAnnotation = null;
         if (clazz.isAnnotationPresent(SSCPermission.class)) {
-            SSCPermission permAnnotation = clazz.getAnnotation(SSCPermission.class);
+            permAnnotation = clazz.getAnnotation(SSCPermission.class);
             if (validatePermission(permAnnotation, clazz.getSimpleName())) {
-                // level이 지정되면 requires에 OP 레벨 설정
-                if (permAnnotation.level() != PermissionLevel.NONE) {
-                    final int requiredLevel = permAnnotation.level().getLevel();
-                    node.requires(source -> {
-                        try {
-                            return (boolean) source.getClass().getMethod("hasPermission", int.class)
-                                    .invoke(source, requiredLevel);
-                        } catch (Exception e) {
-                            return false;
-                        }
-                    });
-                } else {
-                    node.requires(source -> checkPermission(source, permAnnotation));
+                if (permAnnotation.propagate()) {
+                    // propagate=true: requires()로 하위 커맨드까지 전파
+                    if (permAnnotation.level() != PermissionLevel.NONE) {
+                        final int requiredLevel = permAnnotation.level().getLevel();
+                        node.requires(source -> {
+                            try {
+                                return (boolean) source.getClass().getMethod("hasPermission", int.class)
+                                        .invoke(source, requiredLevel);
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        });
+                    } else {
+                        final SSCPermission finalPerm = permAnnotation;
+                        node.requires(source -> checkPermission(source, finalPerm));
+                    }
+                    permAnnotation = null; // requires()로 이미 처리. execute에서 중복 체크 안 함
                 }
+                // propagate=false: permAnnotation을 유지 → execute 핸들러에서 체크
+            } else {
+                permAnnotation = null; // validate 실패
             }
         }
 
         // Handle executes
+        final SSCPermission executePermission = permAnnotation; // propagate=false 일 때만 non-null
         for (Method method : clazz.getDeclaredMethods()) {
             if (method.isAnnotationPresent(SSCExecute.class)) {
                 if (!Modifier.isStatic(method.getModifiers())) {
@@ -385,6 +394,27 @@ public class CommandRegistrar {
 
                 Command<CommandSourceStack> commandExecutor = context -> {
                     try {
+                        // propagate=false 일 때 execute 실행 전 권한 체크
+                        if (executePermission != null) {
+                            boolean hasPermission;
+                            if (executePermission.level() != PermissionLevel.NONE) {
+                                try {
+                                    hasPermission = (boolean) context.getSource().getClass()
+                                            .getMethod("hasPermission", int.class)
+                                            .invoke(context.getSource(), executePermission.level().getLevel());
+                                } catch (Exception e) {
+                                    hasPermission = false;
+                                }
+                            } else {
+                                hasPermission = checkPermission(context.getSource(), executePermission);
+                            }
+                            if (!hasPermission) {
+                                context.getSource().sendFailure(
+                                        net.minecraft.network.chat.Component.literal("권한이 없습니다."));
+                                return 0;
+                            }
+                        }
+
                         Object[] args = new Object[parameters.length];
                         for (int i = 0; i < mappings.size(); i++) {
                             ParameterMapping map = mappings.get(i);

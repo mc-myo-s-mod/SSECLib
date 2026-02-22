@@ -1,20 +1,18 @@
 package me.myogoo.ssec.command.test;
 
+import me.myogoo.ssec.api.command.*;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mojang.brigadier.context.CommandContext;
 
-import me.myogoo.ssec.api.command.SSCAlias;
-import me.myogoo.ssec.api.command.SSCExecute;
-import me.myogoo.ssec.api.command.SSCommand;
-import me.myogoo.ssec.api.command.SSCArgument;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 
 @SSCommand("ssec")
 @SSCAlias({ "ssc" })
+@SSCPermission(level = PermissionLevel.NONE)
 public class TestCommand {
     private static final Logger LOGGER = LoggerFactory.getLogger(TestCommand.class);
 

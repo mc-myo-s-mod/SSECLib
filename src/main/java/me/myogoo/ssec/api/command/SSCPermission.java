@@ -24,4 +24,10 @@ public @interface SSCPermission {
      * 커스텀 동적 퍼미션 체커 클래스.
      */
     Class<? extends SSCPermissionChecker> custom() default SSCPermissionChecker.class;
+
+    /**
+     * true이면 하위 서브커맨드에도 이 권한이 전파됩니다.
+     * false(기본값)이면 이 커맨드의 execute에만 적용됩니다.
+     */
+    boolean propagate() default false;
 }
