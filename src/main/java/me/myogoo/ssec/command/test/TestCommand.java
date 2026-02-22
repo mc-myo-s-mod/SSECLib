@@ -35,7 +35,7 @@ public class TestCommand {
         }
 
         @SSCommand(value = "number", parent = SubCommand.class)
-        @SSCAlias({ "seec.ssub" })
+        @SSCAlias({ "ssec.ssub" })
         public static class SubSubCommand {
             @SSCExecute
             public static void execute(CommandContext<CommandSourceStack> ctx, @SSCArgument("number") int number) {

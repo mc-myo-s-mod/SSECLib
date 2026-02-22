@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 public class TestSubCommand {
     private final static Logger LOGGER = LoggerFactory.getLogger(TestSubCommand.class);
     @SSCExecute
-    public void execute(CommandContext<CommandSourceStack> ctx, @SSCArgument("i") int i) {
+    public static void execute(CommandContext<CommandSourceStack> ctx, @SSCArgument("i") int i) {
         LOGGER.info("Executed other subcommand ${}", i);
         ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal("Executed other subcommand"), false);
     }

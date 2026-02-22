@@ -151,7 +151,7 @@ public class CommandRegistrar {
 
             SSCAlias aliasAnnotation = childClass.getAnnotation(SSCAlias.class);
             for (String alias : aliasAnnotation.value()) {
-                registerSubcommandAlias(dispatcher, alias, childClass, allCommandClasses);
+                registerSubcommandAlias(dispatcher, alias, targetNode);
             }
         }
     }
@@ -253,43 +253,43 @@ public class CommandRegistrar {
     }
 
     /**
-     * 서브커맨드 alias 등록 (재빌드 방식).
-     * alias의 마지막 세그먼트 이름으로 buildCommandNode를 호출하여
-     * 완전한 커맨드 트리를 구성합니다.
-     * 예: "seec.ssub" + SubSubCommand → /seec ssub <number>
+     * 서브커맨드 alias 등록 (redirect 방식).
+     * alias "." 기준 분리 후, 이미 등록된 상위 커맨드 노드에 redirect 자식을 추가합니다.
      */
     private static void registerSubcommandAlias(CommandDispatcher<CommandSourceStack> dispatcher,
-            String alias, Class<?> childClass, List<Class<?>> allCommandClasses) {
+            String alias, CommandNode<CommandSourceStack> targetNode) {
         if (!alias.contains(".")) {
-            // 단순 alias: alias 자체를 커맨드 이름으로 사용
-            LiteralArgumentBuilder<CommandSourceStack> node = buildCommandNodeWithName(alias, childClass,
-                    allCommandClasses);
-            if (node == null)
-                return;
-            dispatcher.register(node);
-            LOGGER.info("Registered subcommand alias (rebuild): /{}", alias);
+            // 단순 alias: 최상위로 redirect
+            dispatcher.register(Commands.literal(alias).redirect(targetNode));
+            LOGGER.info("Registered subcommand alias: /{} -> {}", alias, targetNode.getName());
             return;
         }
 
         String[] parts = alias.split("\\.");
 
-        // 마지막 세그먼트 이름으로 커맨드를 재빌드
-        LiteralArgumentBuilder<CommandSourceStack> innermost = buildCommandNodeWithName(
-                parts[parts.length - 1], childClass, allCommandClasses);
-        if (innermost == null)
+        // 상위 커맨드가 dispatcher에 등록되어 있는지 확인
+        CommandNode<CommandSourceStack> existingRoot = dispatcher.getRoot().getChild(parts[0]);
+        if (existingRoot == null) {
+            LOGGER.error("[SSEC] Alias '{}' 등록 실패: 상위 커맨드 '/{}' 가 등록되어 있지 않습니다! " +
+                    "먼저 @SSCommand(\"{}\") 루트 커맨드를 등록해 주세요.", alias, parts[0], parts[0]);
             return;
+        }
 
-        // 안쪽부터 바깥으로 감싸기
+        // 마지막 세그먼트를 redirect로 생성
+        LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
+                .redirect(targetNode);
+
+        // 중간 세그먼트가 있으면 감싸기
         for (int i = parts.length - 2; i >= 1; i--) {
             LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
             wrapper.then(innermost);
             innermost = wrapper;
         }
 
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
-        root.then(innermost);
-        dispatcher.register(root);
-        LOGGER.info("Registered dot-alias (rebuild): {} for {}", alias, childClass.getSimpleName());
+        // 이미 등록된 상위 커맨드에 자식으로 직접 추가
+        existingRoot.addChild(innermost.build());
+        LOGGER.info("Registered dot-alias: {} -> {} (added to existing /{})",
+                alias, targetNode.getName(), parts[0]);
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNode(Class<?> clazz,
