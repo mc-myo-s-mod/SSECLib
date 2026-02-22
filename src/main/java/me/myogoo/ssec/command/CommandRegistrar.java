@@ -32,9 +32,13 @@ import me.myogoo.ssec.command.argument.SSCBooleanArgument;
 import me.myogoo.ssec.command.argument.SSCStringArgument;
 import me.myogoo.ssec.command.argument.SSCVec3Argument;
 import me.myogoo.ssec.command.argument.SSCEntityArgument;
+import me.myogoo.ssec.command.argument.SSCEntitiesArgument;
+import me.myogoo.ssec.command.argument.SSCPlayerArgument;
+import me.myogoo.ssec.command.argument.SSCPlayersArgument;
 
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.server.level.ServerPlayer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +61,9 @@ public class CommandRegistrar {
         registerAdapter(String.class, new SSCStringArgument());
         registerAdapter(Vec3.class, new SSCVec3Argument());
         registerAdapter(Entity.class, new SSCEntityArgument());
+        registerAdapter(Entity[].class, new SSCEntitiesArgument());
+        registerAdapter(ServerPlayer.class, new SSCPlayerArgument());
+        registerAdapter(ServerPlayer[].class, new SSCPlayersArgument());
     }
 
     /**
