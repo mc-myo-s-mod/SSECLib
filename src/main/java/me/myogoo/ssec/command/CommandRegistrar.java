@@ -109,9 +109,13 @@ public class CommandRegistrar {
 
             // Handle root aliases
             if (clazz.isAnnotationPresent(SSCAlias.class)) {
+                // alias에도 적용할 permission 정보 전달
+                SSCPermission aliasPerm = clazz.isAnnotationPresent(SSCPermission.class)
+                        ? clazz.getAnnotation(SSCPermission.class)
+                        : null;
                 SSCAlias aliasAnnotation = clazz.getAnnotation(SSCAlias.class);
                 for (String alias : aliasAnnotation.value()) {
-                    registerAlias(dispatcher, alias, registeredNode);
+                    registerAlias(dispatcher, alias, registeredNode, aliasPerm);
                 }
             }
 
@@ -223,19 +227,23 @@ public class CommandRegistrar {
 
     /**
      * Alias 등록 (redirect 방식 - root alias 전용).
-     * "." 이 포함되면 계층 리터럴 트리로 분리하여 등록합니다.
+     * 원본 커맨드의 permission도 alias에 동일하게 적용합니다.
      */
     private static void registerAlias(CommandDispatcher<CommandSourceStack> dispatcher,
-            String alias, CommandNode<CommandSourceStack> targetNode) {
+            String alias, CommandNode<CommandSourceStack> targetNode, SSCPermission perm) {
         if (!alias.contains(".")) {
-            dispatcher.register(Commands.literal(alias).redirect(targetNode));
+            LiteralArgumentBuilder<CommandSourceStack> aliasBuilder = Commands.literal(alias).redirect(targetNode);
+            applyPermissionToBuilder(aliasBuilder, perm);
+            dispatcher.register(aliasBuilder);
             LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
             return;
         }
 
         String[] parts = alias.split("\\.");
         if (parts.length < 2) {
-            dispatcher.register(Commands.literal(alias).redirect(targetNode));
+            LiteralArgumentBuilder<CommandSourceStack> aliasBuilder = Commands.literal(alias).redirect(targetNode);
+            applyPermissionToBuilder(aliasBuilder, perm);
+            dispatcher.register(aliasBuilder);
             LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
             return;
         }
@@ -249,8 +257,32 @@ public class CommandRegistrar {
         }
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
         root.then(innermost);
+        applyPermissionToBuilder(root, perm);
         dispatcher.register(root);
         LOGGER.info("Registered dot-alias: {} → {}", alias, targetNode.getName());
+    }
+
+    /**
+     * LiteralArgumentBuilder에 SSCPermission 기반 requires()를 설정합니다.
+     */
+    private static void applyPermissionToBuilder(LiteralArgumentBuilder<CommandSourceStack> builder,
+            SSCPermission perm) {
+        if (perm == null || !validatePermission(perm, "alias"))
+            return;
+
+        if (perm.level() != PermissionLevel.NONE) {
+            final int requiredLevel = perm.level().getLevel();
+            builder.requires(source -> {
+                try {
+                    return (boolean) source.getClass().getMethod("hasPermission", int.class)
+                            .invoke(source, requiredLevel);
+                } catch (Exception e) {
+                    return false;
+                }
+            });
+        } else {
+            builder.requires(source -> checkPermission(source, perm));
+        }
     }
 
     /**
