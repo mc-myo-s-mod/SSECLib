@@ -4,6 +4,7 @@ import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import me.myogoo.ssec.api.command.SSCExecute;
 import me.myogoo.ssec.api.command.SSCPermission;
@@ -105,16 +106,118 @@ public class CommandRegistrar {
             LiteralCommandNode<CommandSourceStack> registeredNode = dispatcher.register(builder);
             LOGGER.info("Successfully registered root node: {}", registeredNode.getName());
 
-            // Handle aliases
+            // Handle root aliases
             if (clazz.isAnnotationPresent(SSCAlias.class)) {
                 SSCAlias aliasAnnotation = clazz.getAnnotation(SSCAlias.class);
                 for (String alias : aliasAnnotation.value()) {
                     registerAlias(dispatcher, alias, registeredNode);
                 }
             }
+
+            // Handle subcommand aliases (inner + external classes)
+            registerSubcommandAliases(dispatcher, clazz, allCommandClasses);
         } else {
             LOGGER.warn("Builder was null for class: {}", clazz.getName());
         }
+    }
+
+    /**
+     * 모든 서브커맨드 클래스를 순회하며 @SSCAlias가 있으면
+     * 전체 경로를 추적하여 dispatcher에서 노드를 찾아 alias를 등록합니다.
+     */
+    private static void registerSubcommandAliases(CommandDispatcher<CommandSourceStack> dispatcher,
+            Class<?> rootClass, List<Class<?>> allCommandClasses) {
+        // root 클래스 산하의 모든 커맨드 클래스를 수집 (inner + external)
+        List<Class<?>> allChildren = new ArrayList<>();
+        collectAllChildren(rootClass, allCommandClasses, allChildren);
+
+        for (Class<?> childClass : allChildren) {
+            if (!childClass.isAnnotationPresent(SSCAlias.class))
+                continue;
+
+            // 전체 경로 추적: childClass → parent → ... → rootClass
+            List<String> path = resolveCommandPath(childClass, rootClass);
+            if (path == null || path.isEmpty()) {
+                LOGGER.warn("Could not resolve command path for alias on: {}", childClass.getName());
+                continue;
+            }
+
+            // dispatcher에서 노드 찾기
+            CommandNode<CommandSourceStack> targetNode = findNode(dispatcher, path);
+            if (targetNode == null) {
+                LOGGER.warn("Could not find dispatcher node for path: {}", path);
+                continue;
+            }
+
+            SSCAlias aliasAnnotation = childClass.getAnnotation(SSCAlias.class);
+            for (String alias : aliasAnnotation.value()) {
+                registerAlias(dispatcher, alias, targetNode);
+            }
+        }
+    }
+
+    /**
+     * rootClass 산하의 모든 커맨드 클래스를 재귀적으로 수집합니다.
+     */
+    private static void collectAllChildren(Class<?> parentClass, List<Class<?>> allCommandClasses,
+            List<Class<?>> result) {
+        // inner classes
+        for (Class<?> inner : parentClass.getDeclaredClasses()) {
+            if (inner.isAnnotationPresent(SSCommand.class)) {
+                SSCommand ann = inner.getAnnotation(SSCommand.class);
+                if (ann.parent() == parentClass) {
+                    result.add(inner);
+                    collectAllChildren(inner, allCommandClasses, result);
+                }
+            }
+        }
+        // external classes
+        for (Class<?> candidate : allCommandClasses) {
+            if (candidate.isAnnotationPresent(SSCommand.class)) {
+                SSCommand ann = candidate.getAnnotation(SSCommand.class);
+                if (ann.parent() == parentClass && candidate.getDeclaringClass() != parentClass) {
+                    result.add(candidate);
+                    collectAllChildren(candidate, allCommandClasses, result);
+                }
+            }
+        }
+    }
+
+    /**
+     * childClass부터 rootClass까지의 커맨드 경로를 추적합니다.
+     * 예: SubSubCommand("number") → SubCommand("say") → TestCommand("ssec")
+     * 반환: ["ssec", "say", "number"]
+     */
+    private static List<String> resolveCommandPath(Class<?> childClass, Class<?> rootClass) {
+        List<String> path = new ArrayList<>();
+        Class<?> current = childClass;
+        int maxDepth = 20; // 무한 루프 방지
+        while (current != null && maxDepth-- > 0) {
+            SSCommand ann = current.getAnnotation(SSCommand.class);
+            if (ann == null)
+                return null;
+            path.add(0, ann.value());
+            if (current == rootClass)
+                break;
+            current = ann.parent();
+            if (current == void.class)
+                return null; // root에 도달하지 못함
+        }
+        return path;
+    }
+
+    /**
+     * dispatcher에서 주어진 경로의 커맨드 노드를 찾습니다.
+     */
+    private static CommandNode<CommandSourceStack> findNode(CommandDispatcher<CommandSourceStack> dispatcher,
+            List<String> path) {
+        CommandNode<CommandSourceStack> node = dispatcher.getRoot();
+        for (String segment : path) {
+            node = node.getChild(segment);
+            if (node == null)
+                return null;
+        }
+        return node;
     }
 
     /**
@@ -123,7 +226,7 @@ public class CommandRegistrar {
      * "."이 없으면 기존처럼 단순 redirect합니다.
      */
     private static void registerAlias(CommandDispatcher<CommandSourceStack> dispatcher,
-            String alias, LiteralCommandNode<CommandSourceStack> targetNode) {
+            String alias, CommandNode<CommandSourceStack> targetNode) {
         if (!alias.contains(".")) {
             // 단순 alias
             dispatcher.register(Commands.literal(alias).redirect(targetNode));
