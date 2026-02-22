@@ -1,4 +1,4 @@
-package me.myogoo.ssec.command.argument;
+package me.myogoo.ssec.command.argument.entity;
 
 import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -7,16 +7,12 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.util.Collection;
-
-public class SSCPlayersArgument implements SSCArgumentAdapter<ServerPlayer[]> {
+public class SSCPlayerArgument implements SSCArgumentAdapter<ServerPlayer> {
     @SuppressWarnings("unchecked")
     @Override
-    public ServerPlayer[] value(CommandContext<?> ctx, String name) {
+    public ServerPlayer value(CommandContext<?> ctx, String name) {
         try {
-            Collection<ServerPlayer> players = EntityArgument.getPlayers((CommandContext<CommandSourceStack>) ctx,
-                    name);
-            return players.toArray(new ServerPlayer[0]);
+            return EntityArgument.getPlayer((CommandContext<CommandSourceStack>) ctx, name);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -24,6 +20,6 @@ public class SSCPlayersArgument implements SSCArgumentAdapter<ServerPlayer[]> {
 
     @Override
     public ArgumentType<?> argumentType() {
-        return EntityArgument.players();
+        return EntityArgument.player();
     }
 }

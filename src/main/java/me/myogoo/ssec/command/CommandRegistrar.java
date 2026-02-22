@@ -10,6 +10,7 @@ import me.myogoo.ssec.api.command.SSCPermission;
 import me.myogoo.ssec.api.command.SSCommand;
 import me.myogoo.ssec.api.command.SSCDocument;
 import me.myogoo.ssec.api.command.SSCArgument;
+import me.myogoo.ssec.api.command.SSCAlias;
 import me.myogoo.ssec.api.command.SSCPermissionChecker;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -31,11 +32,10 @@ import me.myogoo.ssec.command.argument.SSCFloatArgument;
 import me.myogoo.ssec.command.argument.SSCBooleanArgument;
 import me.myogoo.ssec.command.argument.SSCStringArgument;
 import me.myogoo.ssec.command.argument.SSCVec3Argument;
-import me.myogoo.ssec.command.argument.SSCEntityArgument;
-import me.myogoo.ssec.command.argument.SSCEntitiesArgument;
-import me.myogoo.ssec.command.argument.SSCPlayerArgument;
-import me.myogoo.ssec.command.argument.SSCPlayersArgument;
-
+import me.myogoo.ssec.command.argument.entity.SSCEntitiesArgument;
+import me.myogoo.ssec.command.argument.entity.SSCEntityArgument;
+import me.myogoo.ssec.command.argument.entity.SSCPlayerArgument;
+import me.myogoo.ssec.command.argument.entity.SSCPlayersArgument;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.server.level.ServerPlayer;
@@ -77,30 +77,39 @@ public class CommandRegistrar {
     }
 
     /**
-     * Registers a command class to the dispatcher.
-     * 
-     * @param dispatcher The CommandDispatcher
-     * @param clazz      The class annotated with @SSCommand
+     * Registers a command class to the dispatcher (legacy: inner-class only).
      */
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, Class<?> clazz) {
+        register(dispatcher, clazz, List.of());
+    }
+
+    /**
+     * Registers a command class to the dispatcher, with all scanned command classes
+     * available for cross-file parent resolution.
+     *
+     * @param dispatcher        The CommandDispatcher
+     * @param clazz             The root class annotated with @SSCommand
+     * @param allCommandClasses All classes annotated with @SSCommand (for
+     *                          cross-file child lookup)
+     */
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher, Class<?> clazz,
+            List<Class<?>> allCommandClasses) {
         LOGGER.debug("Attempting to register class: {}", clazz.getName());
         if (!clazz.isAnnotationPresent(SSCommand.class)) {
             LOGGER.debug("Class {} missing @SSCommand", clazz.getName());
             return;
         }
 
-        LiteralArgumentBuilder<CommandSourceStack> builder = buildCommandNode(clazz);
+        LiteralArgumentBuilder<CommandSourceStack> builder = buildCommandNode(clazz, allCommandClasses);
         if (builder != null) {
-            LiteralCommandNode<CommandSourceStack> registeredNode = dispatcher
-                    .register(builder);
+            LiteralCommandNode<CommandSourceStack> registeredNode = dispatcher.register(builder);
             LOGGER.info("Successfully registered root node: {}", registeredNode.getName());
 
-            if (clazz.isAnnotationPresent(me.myogoo.ssec.api.command.SSCAlias.class)) {
-                me.myogoo.ssec.api.command.SSCAlias aliasAnnotation = clazz
-                        .getAnnotation(me.myogoo.ssec.api.command.SSCAlias.class);
+            // Handle aliases
+            if (clazz.isAnnotationPresent(SSCAlias.class)) {
+                SSCAlias aliasAnnotation = clazz.getAnnotation(SSCAlias.class);
                 for (String alias : aliasAnnotation.value()) {
-                    dispatcher.register(Commands.literal(alias).redirect(registeredNode));
-                    LOGGER.info("Registered alias: {} for {}", alias, registeredNode.getName());
+                    registerAlias(dispatcher, alias, registeredNode);
                 }
             }
         } else {
@@ -108,7 +117,49 @@ public class CommandRegistrar {
         }
     }
 
-    private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNode(Class<?> clazz) {
+    /**
+     * Alias 등록: "." 이 포함되면 계층 리터럴 트리로 분리하여 등록합니다.
+     * 예) "seec.ssub" → /seec ssub (redirect → registeredNode)
+     * "."이 없으면 기존처럼 단순 redirect합니다.
+     */
+    private static void registerAlias(CommandDispatcher<CommandSourceStack> dispatcher,
+            String alias, LiteralCommandNode<CommandSourceStack> targetNode) {
+        if (!alias.contains(".")) {
+            // 단순 alias
+            dispatcher.register(Commands.literal(alias).redirect(targetNode));
+            LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
+            return;
+        }
+
+        // "." 기준으로 분리하여 계층 커맨드 생성
+        String[] parts = alias.split("\\.");
+        if (parts.length < 2) {
+            dispatcher.register(Commands.literal(alias).redirect(targetNode));
+            LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
+            return;
+        }
+
+        // 마지막 세그먼트를 redirect, 앞은 literal 계층
+        // 예: parts = ["seec", "ssub"] → /seec ssub (redirect → targetNode)
+        LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
+                .redirect(targetNode);
+
+        // 안쪽부터 바깥으로 감싸기
+        for (int i = parts.length - 2; i >= 1; i--) {
+            LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
+            wrapper.then(innermost);
+            innermost = wrapper;
+        }
+
+        // 최상위 루트 등록
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
+        root.then(innermost);
+        dispatcher.register(root);
+        LOGGER.info("Registered dot-alias: {} → {}", alias, targetNode.getName());
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNode(Class<?> clazz,
+            List<Class<?>> allCommandClasses) {
         SSCommand cmdAnnotation = clazz.getAnnotation(SSCommand.class);
         if (cmdAnnotation == null) {
             return null;
@@ -216,14 +267,35 @@ public class CommandRegistrar {
             }
         }
 
-        // Handle subcommands
+        // Handle subcommands: inner classes
         for (Class<?> innerClass : clazz.getDeclaredClasses()) {
             if (innerClass.isAnnotationPresent(SSCommand.class)) {
                 SSCommand innerCmdAnnotation = innerClass.getAnnotation(SSCommand.class);
                 if (innerCmdAnnotation.parent() == clazz) {
-                    LiteralArgumentBuilder<CommandSourceStack> subNode = buildCommandNode(innerClass);
+                    LiteralArgumentBuilder<CommandSourceStack> subNode = buildCommandNode(innerClass,
+                            allCommandClasses);
                     if (subNode != null) {
                         node = node.then(subNode);
+
+                        // Register aliases for subcommands too
+                        // (aliases for inner subcommands are handled at registration time)
+                    }
+                }
+            }
+        }
+
+        // Handle subcommands: external classes (cross-file parent support)
+        for (Class<?> candidate : allCommandClasses) {
+            if (candidate.isAnnotationPresent(SSCommand.class)) {
+                SSCommand candidateAnnotation = candidate.getAnnotation(SSCommand.class);
+                // External class with parent == this class and NOT an inner class of this class
+                if (candidateAnnotation.parent() == clazz && candidate.getDeclaringClass() != clazz) {
+                    LiteralArgumentBuilder<CommandSourceStack> subNode = buildCommandNode(candidate,
+                            allCommandClasses);
+                    if (subNode != null) {
+                        node = node.then(subNode);
+                        LOGGER.info("Registered cross-file subcommand: {} under {}", candidateAnnotation.value(),
+                                cmdAnnotation.value());
                     }
                 }
             }

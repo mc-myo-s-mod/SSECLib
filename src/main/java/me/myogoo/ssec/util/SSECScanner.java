@@ -82,16 +82,24 @@ public class SSECScanner {
 
     private static void registerCommands(ScanResult scanResult) {
         LOGGER.info("[SSEC] Scanning for @SSCommand...");
-        int count = 0;
 
+        // 1. 모든 @SSCommand 클래스를 수집
+        java.util.List<Class<?>> allCommandClasses = new java.util.ArrayList<>();
         for (ClassInfo classInfo : scanResult.getClassesWithAnnotation(SSCommand.class.getName())) {
-            Class<?> clazz = classInfo.loadClass();
+            allCommandClasses.add(classInfo.loadClass());
+        }
+
+        LOGGER.info("[SSEC] Found {} total @SSCommand classes.", allCommandClasses.size());
+
+        // 2. root 커맨드만 필터링하여 등록 (allCommandClasses 전체를 함께 전달)
+        int count = 0;
+        for (Class<?> clazz : allCommandClasses) {
             SSCommand annotation = clazz.getAnnotation(SSCommand.class);
 
             // parent()가 void.class (기본값)인 경우만 최상위 커맨드로 판단하여 등록
             if (annotation.parent() == void.class) {
                 CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-                    CommandRegistrar.register(dispatcher, clazz);
+                    CommandRegistrar.register(dispatcher, clazz, allCommandClasses);
                 });
                 count++;
                 LOGGER.info("[SSEC] Registered root command class: {}", clazz.getSimpleName());
