@@ -1,6 +1,6 @@
 package me.myogoo.ssec.event;
 
-import me.myogoo.ssec.api.event.SSECEvent;
+import me.myogoo.ssec.api.event.SSEvent;
 import net.fabricmc.fabric.api.event.Event;
 
 import java.lang.reflect.Field;
@@ -21,8 +21,8 @@ public class EventRegistrar {
         Class<?> targetClass = target.getClass();
 
         for (Method method : targetClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(SSECEvent.class)) {
-                SSECEvent annotation = method.getAnnotation(SSECEvent.class);
+            if (method.isAnnotationPresent(SSEvent.class)) {
+                SSEvent annotation = method.getAnnotation(SSEvent.class);
                 Class<?> listenerClass = annotation.value();
 
                 try {

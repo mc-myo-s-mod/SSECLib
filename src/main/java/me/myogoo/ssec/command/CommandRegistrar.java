@@ -9,7 +9,7 @@ import me.myogoo.ssec.api.command.SSCExecute;
 import me.myogoo.ssec.api.command.SSCPermission;
 import me.myogoo.ssec.api.command.SSCommand;
 import me.myogoo.ssec.api.command.SSCDocument;
-import me.myogoo.ssec.api.command.SSCArg;
+import me.myogoo.ssec.api.command.SSCArgument;
 import me.myogoo.ssec.api.command.SSCPermissionChecker;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -20,16 +20,16 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
-
 import com.mojang.brigadier.arguments.ArgumentType;
-import com.mojang.brigadier.arguments.BoolArgumentType;
-import com.mojang.brigadier.arguments.DoubleArgumentType;
-import com.mojang.brigadier.arguments.FloatArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import net.minecraft.commands.arguments.EntityArgument;
+
+import me.myogoo.ssec.api.command.argument.SSCArgumentAdapter;
+import me.myogoo.ssec.command.argument.SSCIntArgument;
+import me.myogoo.ssec.command.argument.SSCDoubleArgument;
+import me.myogoo.ssec.command.argument.SSCFloatArgument;
+import me.myogoo.ssec.command.argument.SSCBooleanArgument;
+import me.myogoo.ssec.command.argument.SSCStringArgument;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,28 +38,28 @@ public class CommandRegistrar {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CommandRegistrar.class);
 
-    private static final Map<Class<?>, Supplier<ArgumentType<?>>> ARGUMENT_REGISTRY = new HashMap<>();
+    private static final Map<Class<?>, SSCArgumentAdapter<?>> ADAPTER_REGISTRY = new HashMap<>();
 
     static {
-        registerArgumentType(int.class, IntegerArgumentType::integer);
-        registerArgumentType(Integer.class, IntegerArgumentType::integer);
-        registerArgumentType(double.class, DoubleArgumentType::doubleArg);
-        registerArgumentType(Double.class, DoubleArgumentType::doubleArg);
-        registerArgumentType(float.class, FloatArgumentType::floatArg);
-        registerArgumentType(Float.class, FloatArgumentType::floatArg);
-        registerArgumentType(boolean.class, BoolArgumentType::bool);
-        registerArgumentType(Boolean.class, BoolArgumentType::bool);
-        registerArgumentType(String.class, StringArgumentType::string);
+        registerAdapter(int.class, new SSCIntArgument());
+        registerAdapter(Integer.class, new SSCIntArgument());
+        registerAdapter(double.class, new SSCDoubleArgument());
+        registerAdapter(Double.class, new SSCDoubleArgument());
+        registerAdapter(float.class, new SSCFloatArgument());
+        registerAdapter(Float.class, new SSCFloatArgument());
+        registerAdapter(boolean.class, new SSCBooleanArgument());
+        registerAdapter(Boolean.class, new SSCBooleanArgument());
+        registerAdapter(String.class, new SSCStringArgument());
     }
 
     /**
-     * Registers a custom ArgumentType mapping for a specific Java class.
+     * Registers a custom ArgumentAdapter mapping for a specific Java class.
      * 
-     * @param clazz    The Java class
-     * @param supplier A supplier that provides the ArgumentType instance
+     * @param clazz   The Java class
+     * @param adapter The adapter instance
      */
-    public static void registerArgumentType(Class<?> clazz, Supplier<ArgumentType<?>> supplier) {
-        ARGUMENT_REGISTRY.put(clazz, supplier);
+    public static void registerAdapter(Class<?> clazz, SSCArgumentAdapter<?> adapter) {
+        ADAPTER_REGISTRY.put(clazz, adapter);
     }
 
     /**
@@ -137,8 +137,8 @@ public class CommandRegistrar {
                     }
 
                     String argName = null;
-                    if (param.isAnnotationPresent(SSCArg.class)) {
-                        argName = param.getAnnotation(SSCArg.class).value();
+                    if (param.isAnnotationPresent(SSCArgument.class)) {
+                        argName = param.getAnnotation(SSCArgument.class).value();
                     }
 
                     if (argName == null) {
@@ -172,17 +172,9 @@ public class CommandRegistrar {
                                     args[i] = context.getSource();
                                 }
                             } else {
-                                // Provide exact type mapping
-                                if (map.type == int.class || map.type == Integer.class) {
-                                    args[i] = IntegerArgumentType.getInteger(context, map.name);
-                                } else if (map.type == double.class || map.type == Double.class) {
-                                    args[i] = DoubleArgumentType.getDouble(context, map.name);
-                                } else if (map.type == float.class || map.type == Float.class) {
-                                    args[i] = FloatArgumentType.getFloat(context, map.name);
-                                } else if (map.type == boolean.class || map.type == Boolean.class) {
-                                    args[i] = BoolArgumentType.getBool(context, map.name);
-                                } else if (map.type == String.class) {
-                                    args[i] = StringArgumentType.getString(context, map.name);
+                                SSCArgumentAdapter<?> adapter = ADAPTER_REGISTRY.get(map.type);
+                                if (adapter != null) {
+                                    args[i] = adapter.value(context, map.name);
                                 } else if (map.type.getName().contains("ServerPlayer")) {
                                     args[i] = EntityArgument.getPlayer(context, map.name);
                                 } else {
@@ -227,8 +219,8 @@ public class CommandRegistrar {
     }
 
     private static ArgumentType<?> getArgumentTypeForClass(Class<?> clazz) {
-        if (ARGUMENT_REGISTRY.containsKey(clazz)) {
-            return ARGUMENT_REGISTRY.get(clazz).get();
+        if (ADAPTER_REGISTRY.containsKey(clazz)) {
+            return ADAPTER_REGISTRY.get(clazz).argumentType();
         }
         if (clazz.getName().contains("ServerPlayer"))
             return EntityArgument.player();

@@ -8,4 +8,9 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface SSESubscribe {
+    /**
+     * @return 등록할 주 대상인 Fabric의 인터페이스 (예:
+     *         ServerLifecycleEvents.ServerStarting.class)
+     */
+    Class<?> value();
 }

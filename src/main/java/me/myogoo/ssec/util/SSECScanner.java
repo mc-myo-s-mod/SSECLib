@@ -6,33 +6,24 @@ import io.github.classgraph.ScanResult;
 import me.myogoo.ssec.api.command.SSCommand;
 import me.myogoo.ssec.command.CommandRegistrar;
 import me.myogoo.ssec.event.EventRegistrar;
-import me.myogoo.ssec.api.event.SSECEvent;
+import me.myogoo.ssec.api.event.SSEvent;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Constructor;
-import java.util.HashSet;
-import java.util.Set;
 
 public class SSECScanner {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SSECScanner.class);
 
     private static final String DEFAULT_PACKAGE_TO_SCAN = "me.myogoo.ssec";
-    private static final Set<String> initializedPackages = new HashSet<>();
 
     public static void initialize() {
         initialize(DEFAULT_PACKAGE_TO_SCAN);
     }
 
     public static void initialize(String packageToScan) {
-        if (initializedPackages.contains(packageToScan)) {
-            LOGGER.info("[SSEC] Package {} is already scanned. Skipping...", packageToScan);
-            return;
-        }
-        initializedPackages.add(packageToScan);
-
         LOGGER.info("[SSEC] Starting annotation scan in package: {}", packageToScan);
 
         try (ScanResult scanResult = new ClassGraph()
@@ -54,7 +45,7 @@ public class SSECScanner {
         LOGGER.info("[SSEC] Scanning for @SSECEvent...");
         int count = 0;
 
-        for (ClassInfo classInfo : scanResult.getClassesWithMethodAnnotation(SSECEvent.class.getName())) {
+        for (ClassInfo classInfo : scanResult.getClassesWithMethodAnnotation(SSEvent.class.getName())) {
             Class<?> clazz = classInfo.loadClass();
 
             // 인스턴스화가 가능한지 확인 (인터페이스, 추상 클래스 등 제외)

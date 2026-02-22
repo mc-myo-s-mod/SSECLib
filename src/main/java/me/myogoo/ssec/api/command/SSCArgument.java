@@ -12,7 +12,7 @@ import java.lang.annotation.Target;
  */
 @Target(ElementType.PARAMETER)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface SSCArg {
+public @interface SSCArgument {
     /**
      * The name of the argument as it will appear in the command tree.
      */
