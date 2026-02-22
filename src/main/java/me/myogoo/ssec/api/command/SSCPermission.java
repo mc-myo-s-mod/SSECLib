@@ -9,16 +9,19 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface SSCPermission {
 
+    /**
+     * LuckPerms/Fabric Permissions API 권한 노드.
+     * 예: "ssec.admin"
+     */
     String[] value() default {};
 
     /**
-     * The vanilla operator level required to bypass other checks.
-     * Default is 2 (typical for commands).
+     * Vanilla OP 레벨. 기본값 NONE은 "미지정" 상태.
      */
-    int level() default 2;
+    PermissionLevel level() default PermissionLevel.NONE;
 
     /**
-     * A custom dynamic permission checker class.
+     * 커스텀 동적 퍼미션 체커 클래스.
      */
     Class<? extends SSCPermissionChecker> custom() default SSCPermissionChecker.class;
 }

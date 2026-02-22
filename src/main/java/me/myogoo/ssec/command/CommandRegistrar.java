@@ -7,6 +7,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import me.myogoo.ssec.api.command.SSCExecute;
+import me.myogoo.ssec.api.command.PermissionLevel;
 import me.myogoo.ssec.api.command.SSCPermission;
 import me.myogoo.ssec.api.command.SSCommand;
 import me.myogoo.ssec.api.command.SSCDocument;
@@ -318,7 +319,22 @@ public class CommandRegistrar {
         // Handle permissions
         if (clazz.isAnnotationPresent(SSCPermission.class)) {
             SSCPermission permAnnotation = clazz.getAnnotation(SSCPermission.class);
-            node.requires(source -> checkPermission(source, permAnnotation));
+            if (validatePermission(permAnnotation, clazz.getSimpleName())) {
+                // level이 지정되면 requires에 OP 레벨 설정
+                if (permAnnotation.level() != PermissionLevel.NONE) {
+                    final int requiredLevel = permAnnotation.level().getLevel();
+                    node.requires(source -> {
+                        try {
+                            return (boolean) source.getClass().getMethod("hasPermission", int.class)
+                                    .invoke(source, requiredLevel);
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    });
+                } else {
+                    node.requires(source -> checkPermission(source, permAnnotation));
+                }
+            }
         }
 
         // Handle executes
@@ -455,46 +471,55 @@ public class CommandRegistrar {
         return null;
     }
 
+    /**
+     * @SSCPermission의 3개 옵션 중 하나만 사용했는지 검증합니다.
+     *                 복수 지정 시 에러 로그를 출력하고 false를 반환합니다.
+     */
+    private static boolean validatePermission(SSCPermission perm, String className) {
+        int count = 0;
+        if (perm.level() != PermissionLevel.NONE)
+            count++;
+        if (perm.value().length > 0)
+            count++;
+        if (perm.custom() != SSCPermissionChecker.class)
+            count++;
+
+        if (count == 0) {
+            LOGGER.warn("[SSEC] @SSCPermission on {} has no value set. Ignoring.", className);
+            return false;
+        }
+        if (count > 1) {
+            LOGGER.error("[SSEC] @SSCPermission on {} has multiple values set (level/value/custom). " +
+                    "Only one is allowed at a time!", className);
+            return false;
+        }
+        return true;
+    }
+
     private static boolean checkPermission(CommandSourceStack source, SSCPermission perm) {
         if (perm == null)
             return true;
 
-        // 1. Vanilla operator level bypass
-        try {
-            boolean hasVanilla = (boolean) source.getClass().getMethod("hasPermission", int.class).invoke(source,
-                    perm.level());
-            if (hasVanilla)
-                return true;
-        } catch (Exception e) {
-            try {
-                boolean hasVanilla = (boolean) source.getClass().getMethod("hasPermissionLevel", int.class)
-                        .invoke(source, perm.level());
-                if (hasVanilla)
-                    return true;
-            } catch (Exception ex) {
-            }
-        }
-
-        // 2. Custom permission checker
+        // 1. Custom permission checker
         Class<? extends SSCPermissionChecker> customClass = perm.custom();
         if (customClass != null && customClass != SSCPermissionChecker.class) {
             try {
                 SSCPermissionChecker checker = customClass.getDeclaredConstructor().newInstance();
-                if (checker.check(source))
-                    return true;
+                return checker.check(source);
             } catch (Exception e) {
                 LOGGER.error("Failed to instantiate custom permission checker", e);
+                return false;
             }
         }
 
-        // 3. Try LuckPerms/Fabric Permissions API check
+        // 2. LuckPerms/Fabric Permissions API check
         String[] permissions = perm.value();
         if (permissions != null && permissions.length > 0) {
             try {
                 Class<?> permsClass = Class.forName("me.lucko.fabric.api.permissions.v0.Permissions");
                 Method checkMethod = permsClass.getMethod("check", Object.class, String.class, int.class);
                 for (String p : permissions) {
-                    boolean has = (boolean) checkMethod.invoke(null, source, p, perm.level());
+                    boolean has = (boolean) checkMethod.invoke(null, source, p, 2);
                     if (has)
                         return true;
                 }
