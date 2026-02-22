@@ -151,7 +151,7 @@ public class CommandRegistrar {
 
             SSCAlias aliasAnnotation = childClass.getAnnotation(SSCAlias.class);
             for (String alias : aliasAnnotation.value()) {
-                registerAlias(dispatcher, alias, targetNode);
+                registerSubcommandAlias(dispatcher, alias, childClass, allCommandClasses);
             }
         }
     }
@@ -221,20 +221,17 @@ public class CommandRegistrar {
     }
 
     /**
-     * Alias 등록: "." 이 포함되면 계층 리터럴 트리로 분리하여 등록합니다.
-     * 예) "seec.ssub" → /seec ssub (redirect → registeredNode)
-     * "."이 없으면 기존처럼 단순 redirect합니다.
+     * Alias 등록 (redirect 방식 - root alias 전용).
+     * "." 이 포함되면 계층 리터럴 트리로 분리하여 등록합니다.
      */
     private static void registerAlias(CommandDispatcher<CommandSourceStack> dispatcher,
             String alias, CommandNode<CommandSourceStack> targetNode) {
         if (!alias.contains(".")) {
-            // 단순 alias
             dispatcher.register(Commands.literal(alias).redirect(targetNode));
             LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
             return;
         }
 
-        // "." 기준으로 분리하여 계층 커맨드 생성
         String[] parts = alias.split("\\.");
         if (parts.length < 2) {
             dispatcher.register(Commands.literal(alias).redirect(targetNode));
@@ -242,10 +239,45 @@ public class CommandRegistrar {
             return;
         }
 
-        // 마지막 세그먼트를 redirect, 앞은 literal 계층
-        // 예: parts = ["seec", "ssub"] → /seec ssub (redirect → targetNode)
         LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
                 .redirect(targetNode);
+        for (int i = parts.length - 2; i >= 1; i--) {
+            LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
+            wrapper.then(innermost);
+            innermost = wrapper;
+        }
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
+        root.then(innermost);
+        dispatcher.register(root);
+        LOGGER.info("Registered dot-alias: {} → {}", alias, targetNode.getName());
+    }
+
+    /**
+     * 서브커맨드 alias 등록 (재빌드 방식).
+     * alias의 마지막 세그먼트 이름으로 buildCommandNode를 호출하여
+     * 완전한 커맨드 트리를 구성합니다.
+     * 예: "seec.ssub" + SubSubCommand → /seec ssub <number>
+     */
+    private static void registerSubcommandAlias(CommandDispatcher<CommandSourceStack> dispatcher,
+            String alias, Class<?> childClass, List<Class<?>> allCommandClasses) {
+        if (!alias.contains(".")) {
+            // 단순 alias: alias 자체를 커맨드 이름으로 사용
+            LiteralArgumentBuilder<CommandSourceStack> node = buildCommandNodeWithName(alias, childClass,
+                    allCommandClasses);
+            if (node == null)
+                return;
+            dispatcher.register(node);
+            LOGGER.info("Registered subcommand alias (rebuild): /{}", alias);
+            return;
+        }
+
+        String[] parts = alias.split("\\.");
+
+        // 마지막 세그먼트 이름으로 커맨드를 재빌드
+        LiteralArgumentBuilder<CommandSourceStack> innermost = buildCommandNodeWithName(
+                parts[parts.length - 1], childClass, allCommandClasses);
+        if (innermost == null)
+            return;
 
         // 안쪽부터 바깥으로 감싸기
         for (int i = parts.length - 2; i >= 1; i--) {
@@ -254,26 +286,33 @@ public class CommandRegistrar {
             innermost = wrapper;
         }
 
-        // 최상위 루트 등록
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
         root.then(innermost);
         dispatcher.register(root);
-        LOGGER.info("Registered dot-alias: {} → {}", alias, targetNode.getName());
+        LOGGER.info("Registered dot-alias (rebuild): {} for {}", alias, childClass.getSimpleName());
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNode(Class<?> clazz,
             List<Class<?>> allCommandClasses) {
         SSCommand cmdAnnotation = clazz.getAnnotation(SSCommand.class);
-        if (cmdAnnotation == null) {
+        if (cmdAnnotation == null)
             return null;
-        }
+        return buildCommandNodeWithName(cmdAnnotation.value(), clazz, allCommandClasses);
+    }
 
-        LiteralArgumentBuilder<CommandSourceStack> node = Commands.literal(cmdAnnotation.value());
+    /**
+     * 커맨드 노드를 지정된 이름(overrideName)으로 빌드합니다.
+     * alias 등록 시 원래 커맨드명 대신 alias 세그먼트 이름으로 빌드할 수 있습니다.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNodeWithName(
+            String overrideName, Class<?> clazz, List<Class<?>> allCommandClasses) {
+
+        LiteralArgumentBuilder<CommandSourceStack> node = Commands.literal(overrideName);
 
         // Handle document
         if (clazz.isAnnotationPresent(SSCDocument.class)) {
             SSCDocument docAnnotation = clazz.getAnnotation(SSCDocument.class);
-            LOGGER.info("Registered Command [{}] Document: {}", cmdAnnotation.value(), docAnnotation.value());
+            LOGGER.info("Registered Command [{}] Document: {}", overrideName, docAnnotation.value());
         }
 
         // Handle permissions
@@ -398,7 +437,7 @@ public class CommandRegistrar {
                     if (subNode != null) {
                         node = node.then(subNode);
                         LOGGER.info("Registered cross-file subcommand: {} under {}", candidateAnnotation.value(),
-                                cmdAnnotation.value());
+                                overrideName);
                     }
                 }
             }
