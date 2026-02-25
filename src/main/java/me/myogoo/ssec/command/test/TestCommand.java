@@ -1,6 +1,8 @@
 package me.myogoo.ssec.command.test;
 
+import me.myogoo.ssec.api.SSECDebug;
 import me.myogoo.ssec.api.command.*;
+import me.myogoo.ssec.api.command.permission.PermissionLevel;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,18 +14,12 @@ import net.minecraft.network.chat.Component;
 
 @SSCommand("ssec")
 @SSCAlias({ "ssc" })
-@SSCPermission(level = PermissionLevel.NONE)
+@SSCPermission(permission = PermissionLevel.GAME_MASTER)
+@SSECDebug
 public class TestCommand {
     private static final Logger LOGGER = LoggerFactory.getLogger(TestCommand.class);
 
-    @SSCExecute
-    public static void execute(CommandContext<CommandSourceStack> ctx,
-            @SSCArgument("amount") int amount,
-            @SSCArgument("name") String name) {
-        LOGGER.info("Executed test command with amount: {} and name: {}", amount, name);
-        ctx.getSource().sendSuccess(() -> Component.literal("hi! amount=" + amount + ", name=" + name), false);
-    }
-
+    @SSCAlias("/s")
     @SSCommand(value = "say", parent = TestCommand.class)
     public static class SubCommand {
 
@@ -32,8 +28,8 @@ public class TestCommand {
             ctx.getSource().sendSuccess(() -> Component.literal("Subcommand msg: " + msg), false);
         }
 
-        @SSCommand(value = "number", parent = SubCommand.class)
-        @SSCAlias({ "ssec.ssub" })
+        @SSCommand(value = "number", parent = TestCommand.SubCommand.class)
+        @SSCAlias({ "/ssec/ssub" })
         public static class SubSubCommand {
             @SSCExecute
             public static void execute(CommandContext<CommandSourceStack> ctx, @SSCArgument("number") int number) {

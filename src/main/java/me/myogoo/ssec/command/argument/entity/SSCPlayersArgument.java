@@ -10,11 +10,10 @@ import net.minecraft.server.level.ServerPlayer;
 import java.util.Collection;
 
 public class SSCPlayersArgument implements SSCArgumentAdapter<ServerPlayer[]> {
-    @SuppressWarnings("unchecked")
     @Override
-    public ServerPlayer[] value(CommandContext<?> ctx, String name) {
+    public ServerPlayer[] value(CommandContext<CommandSourceStack> ctx, String name) {
         try {
-            Collection<ServerPlayer> players = EntityArgument.getPlayers((CommandContext<CommandSourceStack>) ctx,
+            Collection<ServerPlayer> players = EntityArgument.getPlayers(ctx,
                     name);
             return players.toArray(new ServerPlayer[0]);
         } catch (Exception e) {

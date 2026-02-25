@@ -6,14 +6,37 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 프레임워크가 특정 메소드를 Fabric 타겟 이벤트의 리스너로 등록하도록 지시하는 어노테이션입니다.
+ * An annotation instructing the framework to register the specified method
+ * as a listener for a target Fabric event.
+ *
+ * <pre>
+ * // Usage Example
+ * public class MyEvents {
+ *     &#64;SSEvent(ServerLifecycleEvents.ServerStarting.class)
+ *     public static void onServerStart(MinecraftServer server) {
+ *         // ...
+ *     }
+ *
+ *     &#64;SSEvent(value = ServerChunkEvents.Load.class, priority = 10)
+ *     public void onChunkLoad(ServerLevel world, LevelChunk chunk) {
+ *         // ...
+ *     }
+ * }
+ * </pre>
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface SSEvent {
     /**
-     * @return 등록할 주 대상인 Fabric의 인터페이스 (예:
-     *         ServerLifecycleEvents.ServerStarting.class)
+     * @return The target Fabric event callback interface to register
+     *         (e.g., ServerLifecycleEvents.ServerStarting.class)
      */
     Class<?> value();
+
+    /**
+     * Event priority. Lower numbers are executed first.
+     *
+     * @return The priority (default: 0)
+     */
+    int priority() default 0;
 }

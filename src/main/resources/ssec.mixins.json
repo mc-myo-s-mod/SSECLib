@@ -4,6 +4,7 @@
   "package": "me.myogoo.ssec.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "argument.AngleArgumentAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

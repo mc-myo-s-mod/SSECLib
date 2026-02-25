@@ -1,4 +1,4 @@
-package me.myogoo.ssec.api.command;
+package me.myogoo.ssec.api.command.permission;
 
 import net.minecraft.commands.CommandSourceStack;
 

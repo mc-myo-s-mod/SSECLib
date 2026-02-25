@@ -15,7 +15,8 @@
     ],
     "client": [
       "me.myogoo.ssec.client.SSECLibClient"
-    ]
+    ],
+    "ssec": []
   },
   "mixins": [
     "ssec.mixins.json",

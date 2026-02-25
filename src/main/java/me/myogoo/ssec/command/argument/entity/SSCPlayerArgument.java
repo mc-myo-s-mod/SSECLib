@@ -8,11 +8,10 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.server.level.ServerPlayer;
 
 public class SSCPlayerArgument implements SSCArgumentAdapter<ServerPlayer> {
-    @SuppressWarnings("unchecked")
     @Override
-    public ServerPlayer value(CommandContext<?> ctx, String name) {
+    public ServerPlayer value(CommandContext<CommandSourceStack> ctx, String name) {
         try {
-            return EntityArgument.getPlayer((CommandContext<CommandSourceStack>) ctx, name);
+            return EntityArgument.getPlayer(ctx, name);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

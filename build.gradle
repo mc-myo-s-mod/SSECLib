@@ -1,10 +1,19 @@
 plugins {
     id 'fabric-loom' version '1.14.10'
     id 'maven-publish'
+    id 'signing'
 }
 
 version = project.mod_version
 group = project.maven_group
+
+// Load secret.properties if it exists (ignored in CI — uses env vars instead)
+def secretPropsFile = rootProject.file("secret.properties")
+if (secretPropsFile.exists()) {
+    def secretProps = new Properties()
+    secretProps.load(new FileInputStream(secretPropsFile))
+    secretProps.each { key, value -> ext.set(key as String, value) }
+}
 
 base {
     archivesName = project.archives_base_name
@@ -53,10 +62,6 @@ processResources {
 
 def targetJavaVersion = 21
 tasks.withType(JavaCompile).configureEach {
-    // ensure that the encoding is set to UTF-8, no matter what the system default is
-    // this fixes some edge cases with special characters not displaying correctly
-    // see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
-    // If Javadoc is generated, this must be specified in that task too.
     it.options.encoding = "UTF-8"
     if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
         it.options.release.set(targetJavaVersion)
@@ -68,10 +73,8 @@ java {
     if (JavaVersion.current() < javaVersion) {
         toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
     }
-    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-    // if it is present.
-    // If you remove this line, sources will not be generated.
     withSourcesJar()
+    withJavadocJar()
 }
 
 jar {
@@ -80,20 +83,67 @@ jar {
     }
 }
 
-// configure the maven publication
+// ─────────────────────────────────────────────
+// Maven Central Publishing
+// ─────────────────────────────────────────────
 publishing {
     publications {
         create("mavenJava", MavenPublication) {
             artifactId = project.archives_base_name
             from components.java
+
+            pom {
+                name = project.archives_base_name
+                description = "SSECLib - Super Sexy Event Command Library for Minecraft Fabric"
+                url = "https://github.com/mc-myo-s-mod/SSECLib"
+
+                licenses {
+                    license {
+                        name = "GNU Lesser General Public License v3.0"
+                        url = "https://www.gnu.org/licenses/lgpl-3.0.html"
+                    }
+                }
+
+                developers {
+                    developer {
+                        id = "myogoo"
+                        name = "myogoo"
+                        url = "https://github.com/myogoo"
+                    }
+                }
+
+                scm {
+                    connection = "scm:git:git://github.com/mc-myo-s-mod/SSECLib.git"
+                    developerConnection = "scm:git:ssh://github.com/mc-myo-s-mod/SSECLib.git"
+                    url = "https://github.com/mc-myo-s-mod/SSECLib"
+                }
+            }
         }
     }
 
-    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
     repositories {
-        // Add repositories to publish to here.
-        // Notice: This block does NOT have the same function as the block in the top level.
-        // The repositories here will be used for publishing your artifact, not for
-        // retrieving dependencies.
+        maven {
+            name = "OSSRH"
+            def releasesRepoUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+            def snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+            url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+            credentials {
+                username = findProperty("ossrhUsername") ?: System.getenv("MAVEN_ID") ?: ""
+                password = findProperty("ossrhPassword") ?: System.getenv("MAVEN_PW") ?: ""
+            }
+        }
     }
+}
+
+signing {
+    def signingKey = findProperty("signingKey") ?: System.getenv("GPG_SECRET_KEY")
+    def signingPassword = findProperty("signingPassword") ?: System.getenv("GPG_PASSWORD")
+    useInMemoryPgpKeys(signingKey, signingPassword)
+    sign publishing.publications.mavenJava
+    required { !version.endsWith("SNAPSHOT") && gradle.taskGraph.hasTask("publish") }
+}
+
+// Skip signing for local development when keys are not available
+tasks.withType(Sign).configureEach {
+    onlyIf { project.hasProperty("signingKey") || System.getenv("GPG_SECRET_KEY") != null }
 }

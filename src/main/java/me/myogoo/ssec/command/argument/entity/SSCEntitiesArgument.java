@@ -10,11 +10,10 @@ import net.minecraft.world.entity.Entity;
 import java.util.Collection;
 
 public class SSCEntitiesArgument implements SSCArgumentAdapter<Entity[]> {
-    @SuppressWarnings("unchecked")
     @Override
-    public Entity[] value(CommandContext<?> ctx, String name) {
+    public Entity[] value(CommandContext<CommandSourceStack> ctx, String name) {
         try {
-            Collection<? extends Entity> entities = EntityArgument.getEntities((CommandContext<CommandSourceStack>) ctx,
+            Collection<? extends Entity> entities = EntityArgument.getEntities(ctx,
                     name);
             return entities.toArray(new Entity[0]);
         } catch (Exception e) {

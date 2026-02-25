@@ -8,11 +8,10 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.world.entity.Entity;
 
 public class SSCEntityArgument implements SSCArgumentAdapter<Entity> {
-    @SuppressWarnings("unchecked")
     @Override
-    public Entity value(CommandContext<?> ctx, String name) {
+    public Entity value(CommandContext<CommandSourceStack> ctx, String name) {
         try {
-            return EntityArgument.getEntity((CommandContext<CommandSourceStack>) ctx, name);
+            return EntityArgument.getEntity(ctx, name);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

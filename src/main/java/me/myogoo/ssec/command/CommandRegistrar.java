@@ -7,37 +7,40 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import me.myogoo.ssec.api.command.SSCExecute;
-import me.myogoo.ssec.api.command.PermissionLevel;
 import me.myogoo.ssec.api.command.SSCPermission;
 import me.myogoo.ssec.api.command.SSCommand;
-import me.myogoo.ssec.api.command.SSCDocument;
 import me.myogoo.ssec.api.command.SSCArgument;
 import me.myogoo.ssec.api.command.SSCAlias;
-import me.myogoo.ssec.api.command.SSCPermissionChecker;
+import me.myogoo.ssec.api.command.permission.SSCPermissionChecker;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import net.minecraft.commands.arguments.EntityArgument;
 
 import me.myogoo.ssec.api.command.argument.SSCArgumentAdapter;
+import me.myogoo.ssec.api.command.permission.PermissionLevel;
 import me.myogoo.ssec.command.argument.SSCIntArgument;
 import me.myogoo.ssec.command.argument.SSCDoubleArgument;
 import me.myogoo.ssec.command.argument.SSCFloatArgument;
 import me.myogoo.ssec.command.argument.SSCBooleanArgument;
 import me.myogoo.ssec.command.argument.SSCStringArgument;
-import me.myogoo.ssec.command.argument.SSCVec3Argument;
+import me.myogoo.ssec.command.argument.math.SSCVec3Argument;
 import me.myogoo.ssec.command.argument.entity.SSCEntitiesArgument;
 import me.myogoo.ssec.command.argument.entity.SSCEntityArgument;
 import me.myogoo.ssec.command.argument.entity.SSCPlayerArgument;
 import me.myogoo.ssec.command.argument.entity.SSCPlayersArgument;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.permissions.Permission;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.server.level.ServerPlayer;
@@ -109,30 +112,36 @@ public class CommandRegistrar {
 
             // Handle root aliases
             if (clazz.isAnnotationPresent(SSCAlias.class)) {
-                // alias에도 적용할 permission 정보 전달
+                // Pass permission information to apply to alias
                 SSCPermission aliasPerm = clazz.isAnnotationPresent(SSCPermission.class)
                         ? clazz.getAnnotation(SSCPermission.class)
                         : null;
                 SSCAlias aliasAnnotation = clazz.getAnnotation(SSCAlias.class);
                 for (String alias : aliasAnnotation.value()) {
-                    registerAlias(dispatcher, alias, registeredNode, aliasPerm);
+                    registerRootAlias(dispatcher, alias, registeredNode, aliasPerm);
                 }
             }
 
             // Handle subcommand aliases (inner + external classes)
             registerSubcommandAliases(dispatcher, clazz, allCommandClasses);
+
         } else {
             LOGGER.warn("Builder was null for class: {}", clazz.getName());
         }
     }
 
     /**
-     * 모든 서브커맨드 클래스를 순회하며 @SSCAlias가 있으면
-     * 전체 경로를 추적하여 dispatcher에서 노드를 찾아 alias를 등록합니다.
+     * Iterates all subcommand classes and if @SSCAlias is present,
+     * traces the full path to find the node in the dispatcher and registers the
+     * alias.
+     *
+     * Alias path rules:
+     * - Starts with "/" → absolute path (from root)
+     * - Does not start with "/" → relative path (parent path prefix auto-prepended)
      */
     private static void registerSubcommandAliases(CommandDispatcher<CommandSourceStack> dispatcher,
             Class<?> rootClass, List<Class<?>> allCommandClasses) {
-        // root 클래스 산하의 모든 커맨드 클래스를 수집 (inner + external)
+        // Collect all command classes under the root class (inner + external)
         List<Class<?>> allChildren = new ArrayList<>();
         collectAllChildren(rootClass, allCommandClasses, allChildren);
 
@@ -140,29 +149,35 @@ public class CommandRegistrar {
             if (!childClass.isAnnotationPresent(SSCAlias.class))
                 continue;
 
-            // 전체 경로 추적: childClass → parent → ... → rootClass
+            // Trace the full path: childClass → parent → ... → rootClass
             List<String> path = resolveCommandPath(childClass, rootClass);
             if (path == null || path.isEmpty()) {
                 LOGGER.warn("Could not resolve command path for alias on: {}", childClass.getName());
                 continue;
             }
 
-            // dispatcher에서 노드 찾기
+            // Find node from dispatcher
             CommandNode<CommandSourceStack> targetNode = findNode(dispatcher, path);
             if (targetNode == null) {
                 LOGGER.warn("Could not find dispatcher node for path: {}", path);
                 continue;
             }
 
+            // Build the parent path prefix (all segments except the last = the subcommand
+            // itself)
+            List<String> parentPath = path.subList(0, path.size() - 1);
+
             SSCAlias aliasAnnotation = childClass.getAnnotation(SSCAlias.class);
             for (String alias : aliasAnnotation.value()) {
-                registerSubcommandAlias(dispatcher, alias, targetNode);
+                LOGGER.info("[SSEC] Processing alias '{}' for class {} (path={}, parentPath={})",
+                        alias, childClass.getSimpleName(), path, parentPath);
+                registerSubcommandAlias(dispatcher, alias, targetNode, parentPath);
             }
         }
     }
 
     /**
-     * rootClass 산하의 모든 커맨드 클래스를 재귀적으로 수집합니다.
+     * Recursively collects all command classes under the rootClass.
      */
     private static void collectAllChildren(Class<?> parentClass, List<Class<?>> allCommandClasses,
             List<Class<?>> result) {
@@ -189,14 +204,14 @@ public class CommandRegistrar {
     }
 
     /**
-     * childClass부터 rootClass까지의 커맨드 경로를 추적합니다.
-     * 예: SubSubCommand("number") → SubCommand("say") → TestCommand("ssec")
-     * 반환: ["ssec", "say", "number"]
+     * Traces the command path from childClass to rootClass.
+     * Example: SubSubCommand("number") → SubCommand("say") → TestCommand("ssec")
+     * Returns: ["ssec", "say", "number"]
      */
     private static List<String> resolveCommandPath(Class<?> childClass, Class<?> rootClass) {
         List<String> path = new ArrayList<>();
         Class<?> current = childClass;
-        int maxDepth = 20; // 무한 루프 방지
+        int maxDepth = 20; // Prevent infinite loop
         while (current != null && maxDepth-- > 0) {
             SSCommand ann = current.getAnnotation(SSCommand.class);
             if (ann == null)
@@ -206,13 +221,13 @@ public class CommandRegistrar {
                 break;
             current = ann.parent();
             if (current == void.class)
-                return null; // root에 도달하지 못함
+                return null; // Failed to reach root
         }
         return path;
     }
 
     /**
-     * dispatcher에서 주어진 경로의 커맨드 노드를 찾습니다.
+     * Finds the command node for the given path from the dispatcher.
      */
     private static CommandNode<CommandSourceStack> findNode(CommandDispatcher<CommandSourceStack> dispatcher,
             List<String> path) {
@@ -226,56 +241,81 @@ public class CommandRegistrar {
     }
 
     /**
-     * Alias 등록 (redirect 방식 - root alias 전용).
-     * 원본 커맨드의 permission도 alias에 동일하게 적용합니다.
+     * Register root-level alias (redirect approach).
+     * Handles "/" path separator.
+     * - Starts with "/" → absolute path (leading "/" stripped before processing)
+     * - Otherwise → simple alias
+     *
+     * Applies the same permission of the original command to the alias.
      */
-    private static void registerAlias(CommandDispatcher<CommandSourceStack> dispatcher,
+    private static void registerRootAlias(CommandDispatcher<CommandSourceStack> dispatcher,
             String alias, CommandNode<CommandSourceStack> targetNode, SSCPermission perm) {
-        if (!alias.contains(".")) {
-            LiteralArgumentBuilder<CommandSourceStack> aliasBuilder = Commands.literal(alias).redirect(targetNode);
+        // Resolve absolute path: strip leading "/"
+        String resolved = alias.startsWith("/") ? alias.substring(1) : alias;
+
+        if (!resolved.contains("/")) {
+            // Simple single-segment alias
+            LiteralArgumentBuilder<CommandSourceStack> aliasBuilder = Commands.literal(resolved).redirect(targetNode);
             applyPermissionToBuilder(aliasBuilder, perm);
             dispatcher.register(aliasBuilder);
-            LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
+            LOGGER.info("Registered alias: /{} → {}", resolved, targetNode.getName());
             return;
         }
 
-        String[] parts = alias.split("\\.");
-        if (parts.length < 2) {
-            LiteralArgumentBuilder<CommandSourceStack> aliasBuilder = Commands.literal(alias).redirect(targetNode);
-            applyPermissionToBuilder(aliasBuilder, perm);
-            dispatcher.register(aliasBuilder);
-            LOGGER.info("Registered alias: {} → {}", alias, targetNode.getName());
-            return;
-        }
+        // Multi-segment alias (e.g. "/newroot/sub" → parts = ["newroot", "sub"])
+        String[] parts = resolved.split("/");
 
-        LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
-                .redirect(targetNode);
-        for (int i = parts.length - 2; i >= 1; i--) {
-            LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
-            wrapper.then(innermost);
-            innermost = wrapper;
+        if (alias.startsWith("/")) {
+            // Absolute path: the root part must already exist in the dispatcher
+            CommandNode<CommandSourceStack> existingRoot = dispatcher.getRoot().getChild(parts[0]);
+            if (existingRoot == null) {
+                throw new IllegalStateException(
+                        String.format("[SSEC] Failed to register alias '/%s': root command '/%s' is not registered! " +
+                                "Please register the @SSCommand(\"%s\") root command first.",
+                                resolved, parts[0], parts[0]));
+            }
+
+            // Build nested chain and add to existing root
+            LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
+                    .redirect(targetNode);
+            for (int i = parts.length - 2; i >= 1; i--) {
+                LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
+                wrapper.then(innermost);
+                innermost = wrapper;
+            }
+            existingRoot.addChild(innermost.build());
+            LOGGER.info("Registered absolute alias: /{} → {} (added to existing /{})",
+                    resolved, targetNode.getName(), parts[0]);
+        } else {
+            // Non-absolute multi-segment: register as a new root tree
+            LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
+                    .redirect(targetNode);
+            for (int i = parts.length - 2; i >= 1; i--) {
+                LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
+                wrapper.then(innermost);
+                innermost = wrapper;
+            }
+            LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
+            root.then(innermost);
+            applyPermissionToBuilder(root, perm);
+            dispatcher.register(root);
+            LOGGER.info("Registered multi-segment alias: /{} → {}", resolved, targetNode.getName());
         }
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(parts[0]);
-        root.then(innermost);
-        applyPermissionToBuilder(root, perm);
-        dispatcher.register(root);
-        LOGGER.info("Registered dot-alias: {} → {}", alias, targetNode.getName());
     }
 
     /**
-     * LiteralArgumentBuilder에 SSCPermission 기반 requires()를 설정합니다.
+     * Configures requires() based on SSCPermission for the LiteralArgumentBuilder.
      */
     private static void applyPermissionToBuilder(LiteralArgumentBuilder<CommandSourceStack> builder,
             SSCPermission perm) {
         if (perm == null || !validatePermission(perm, "alias"))
             return;
 
-        if (perm.level() != PermissionLevel.NONE) {
-            final int requiredLevel = perm.level().getLevel();
+        if (perm.permission() != PermissionLevel.NONE) {
+            final Permission requiredLevel = perm.permission().getPermission();
             builder.requires(source -> {
                 try {
-                    return (boolean) source.getClass().getMethod("hasPermission", int.class)
-                            .invoke(source, requiredLevel);
+                    return (boolean) source.permissions().hasPermission(requiredLevel);
                 } catch (Exception e) {
                     return false;
                 }
@@ -286,43 +326,70 @@ public class CommandRegistrar {
     }
 
     /**
-     * 서브커맨드 alias 등록 (redirect 방식).
-     * alias "." 기준 분리 후, 이미 등록된 상위 커맨드 노드에 redirect 자식을 추가합니다.
+     * Register Subcommand Alias (redirect approach).
+     *
+     * Path rules:
+     * - Starts with "/" → absolute path (from root)
+     * - Otherwise → relative path (parent command path prefix auto-prepended)
+     *
+     * @param parentPath the command path segments of the parent (e.g. ["ssec",
+     *                   "say"])
      */
     private static void registerSubcommandAlias(CommandDispatcher<CommandSourceStack> dispatcher,
-            String alias, CommandNode<CommandSourceStack> targetNode) {
-        if (!alias.contains(".")) {
-            // 단순 alias: 최상위로 redirect
-            dispatcher.register(Commands.literal(alias).redirect(targetNode));
-            LOGGER.info("Registered subcommand alias: /{} -> {}", alias, targetNode.getName());
+            String alias, CommandNode<CommandSourceStack> targetNode, List<String> parentPath) {
+
+        String resolved;
+        boolean isAbsolute = alias.startsWith("/");
+
+        if (isAbsolute) {
+            // Absolute path: strip leading "/" and use as-is
+            resolved = alias.substring(1);
+        } else {
+            // Relative path: prepend parent path
+            StringJoiner joiner = new StringJoiner("/");
+            for (String seg : parentPath) {
+                joiner.add(seg);
+            }
+            joiner.add(alias);
+            resolved = joiner.toString();
+        }
+
+        String[] parts = resolved.split("/");
+
+        LOGGER.info("[SSEC] registerSubcommandAlias: alias='{}', isAbsolute={}, resolved='{}', parts={}",
+                alias, isAbsolute, resolved, java.util.Arrays.toString(parts));
+
+        if (parts.length < 2) {
+            // Single segment: register as a top-level redirect
+            dispatcher.register(Commands.literal(parts[0]).redirect(targetNode));
+            LOGGER.info("Registered subcommand alias: /{} -> {}", parts[0], targetNode.getName());
             return;
         }
 
-        String[] parts = alias.split("\\.");
-
-        // 상위 커맨드가 dispatcher에 등록되어 있는지 확인
+        // Multi-segment: the root command must already exist
         CommandNode<CommandSourceStack> existingRoot = dispatcher.getRoot().getChild(parts[0]);
         if (existingRoot == null) {
-            LOGGER.error("[SSEC] Alias '{}' 등록 실패: 상위 커맨드 '/{}' 가 등록되어 있지 않습니다! " +
-                    "먼저 @SSCommand(\"{}\") 루트 커맨드를 등록해 주세요.", alias, parts[0], parts[0]);
-            return;
+            throw new IllegalStateException(
+                    String.format("[SSEC] Failed to register alias '%s': root command '/%s' is not registered! " +
+                            "Please register the @SSCommand(\"%s\") root command first.",
+                            alias, parts[0], parts[0]));
         }
 
-        // 마지막 세그먼트를 redirect로 생성
+        // Create the last segment as a redirect
         LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
                 .redirect(targetNode);
 
-        // 중간 세그먼트가 있으면 감싸기
+        // Wrap if there are intermediate segments
         for (int i = parts.length - 2; i >= 1; i--) {
             LiteralArgumentBuilder<CommandSourceStack> wrapper = Commands.literal(parts[i]);
             wrapper.then(innermost);
             innermost = wrapper;
         }
 
-        // 이미 등록된 상위 커맨드에 자식으로 직접 추가
+        // Add directly as a child to the already registered parent command
         existingRoot.addChild(innermost.build());
-        LOGGER.info("Registered dot-alias: {} -> {} (added to existing /{})",
-                alias, targetNode.getName(), parts[0]);
+        LOGGER.info("Registered alias: /{} -> {} (added to existing /{})",
+                resolved, targetNode.getName(), parts[0]);
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNode(Class<?> clazz,
@@ -334,51 +401,47 @@ public class CommandRegistrar {
     }
 
     /**
-     * 커맨드 노드를 지정된 이름(overrideName)으로 빌드합니다.
-     * alias 등록 시 원래 커맨드명 대신 alias 세그먼트 이름으로 빌드할 수 있습니다.
+     * Builds the command node with the specified name (overrideName).
+     * When registering an alias, it can be built with the alias segment name
+     * instead of the original command name.
      */
     private static LiteralArgumentBuilder<CommandSourceStack> buildCommandNodeWithName(
             String overrideName, Class<?> clazz, List<Class<?>> allCommandClasses) {
 
         LiteralArgumentBuilder<CommandSourceStack> node = Commands.literal(overrideName);
 
-        // Handle document
-        if (clazz.isAnnotationPresent(SSCDocument.class)) {
-            SSCDocument docAnnotation = clazz.getAnnotation(SSCDocument.class);
-            LOGGER.info("Registered Command [{}] Document: {}", overrideName, docAnnotation.value());
-        }
-
         // Handle permissions
         SSCPermission permAnnotation = null;
         if (clazz.isAnnotationPresent(SSCPermission.class)) {
             permAnnotation = clazz.getAnnotation(SSCPermission.class);
             if (validatePermission(permAnnotation, clazz.getSimpleName())) {
-                if (permAnnotation.propagate()) {
-                    // propagate=true: requires()로 하위 커맨드까지 전파
-                    if (permAnnotation.level() != PermissionLevel.NONE) {
-                        final int requiredLevel = permAnnotation.level().getLevel();
-                        node.requires(source -> {
-                            try {
-                                return (boolean) source.getClass().getMethod("hasPermission", int.class)
-                                        .invoke(source, requiredLevel);
-                            } catch (Exception e) {
-                                return false;
-                            }
-                        });
-                    } else {
-                        final SSCPermission finalPerm = permAnnotation;
-                        node.requires(source -> checkPermission(source, finalPerm));
-                    }
-                    permAnnotation = null; // requires()로 이미 처리. execute에서 중복 체크 안 함
+                // Always apply requires() to the command node for visibility/access control
+                if (permAnnotation.permission() != PermissionLevel.NONE) {
+                    final Permission requiredLevel = permAnnotation.permission().getPermission();
+                    node.requires(source -> {
+                        try {
+                            return (boolean) source.permissions().hasPermission(requiredLevel);
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    });
+                } else {
+                    final SSCPermission finalPerm = permAnnotation;
+                    node.requires(source -> checkPermission(source, finalPerm));
                 }
-                // propagate=false: permAnnotation을 유지 → execute 핸들러에서 체크
+
+                if (permAnnotation.propagate()) {
+                    // propagate=true: already handled by requires(), no execute-time check
+                    permAnnotation = null;
+                }
+                // propagate=false: Keep permAnnotation → also check in execute handler
             } else {
-                permAnnotation = null; // validate 실패
+                permAnnotation = null; // validation failed
             }
         }
 
         // Handle executes
-        final SSCPermission executePermission = permAnnotation; // propagate=false 일 때만 non-null
+        final SSCPermission executePermission = permAnnotation; // non-null only when propagate=false
         for (Method method : clazz.getDeclaredMethods()) {
             if (method.isAnnotationPresent(SSCExecute.class)) {
                 if (!Modifier.isStatic(method.getModifiers())) {
@@ -426,14 +489,13 @@ public class CommandRegistrar {
 
                 Command<CommandSourceStack> commandExecutor = context -> {
                     try {
-                        // propagate=false 일 때 execute 실행 전 권한 체크
+                        // Check permissions before execution when propagate=false
                         if (executePermission != null) {
                             boolean hasPermission;
-                            if (executePermission.level() != PermissionLevel.NONE) {
+                            if (executePermission.permission() != PermissionLevel.NONE) {
                                 try {
-                                    hasPermission = (boolean) context.getSource().getClass()
-                                            .getMethod("hasPermission", int.class)
-                                            .invoke(context.getSource(), executePermission.level().getLevel());
+                                    hasPermission = (boolean) context.getSource().permissions()
+                                            .hasPermission(executePermission.permission().getPermission());
                                 } catch (Exception e) {
                                     hasPermission = false;
                                 }
@@ -442,7 +504,7 @@ public class CommandRegistrar {
                             }
                             if (!hasPermission) {
                                 context.getSource().sendFailure(
-                                        net.minecraft.network.chat.Component.literal("권한이 없습니다."));
+                                        Component.literal("You do not have permission to execute this command."));
                                 return 0;
                             }
                         }
@@ -534,12 +596,12 @@ public class CommandRegistrar {
     }
 
     /**
-     * @SSCPermission의 3개 옵션 중 하나만 사용했는지 검증합니다.
-     *                 복수 지정 시 에러 로그를 출력하고 false를 반환합니다.
+     * Validates that only one of the three options in @SSCPermission is used.
+     * Logs an error and returns false if multiple are specified.
      */
     private static boolean validatePermission(SSCPermission perm, String className) {
         int count = 0;
-        if (perm.level() != PermissionLevel.NONE)
+        if (perm.permission() != PermissionLevel.NONE)
             count++;
         if (perm.value().length > 0)
             count++;

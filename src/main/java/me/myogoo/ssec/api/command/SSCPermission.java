@@ -5,29 +5,47 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import me.myogoo.ssec.api.command.permission.PermissionLevel;
+import me.myogoo.ssec.api.command.permission.SSCPermissionChecker;
+
+/**
+ * Annotation defining permissions required to execute a command or access
+ * specific features.
+ * 
+ * <pre>
+ * // Usage Example
+ * &#64;SSCommand("admincmd")
+ * &#64;SSCPermission(permission = PermissionLevel.ADMIN)
+ * public class AdminCommand { ... }
+ * 
+ * &#64;SSCommand("pluginfeature")
+ * &#64;SSCPermission(value = "ssec.admin")
+ * public class PluginCommand { ... }
+ * </pre>
+ */
 @Target({ ElementType.TYPE, ElementType.METHOD })
 @Retention(RetentionPolicy.RUNTIME)
 public @interface SSCPermission {
 
     /**
-     * LuckPerms/Fabric Permissions API 권한 노드.
-     * 예: "ssec.admin"
+     * LuckPerms/Fabric Permissions API permission node.
+     * Example: "ssec.admin"
      */
     String[] value() default {};
 
     /**
-     * Vanilla OP 레벨. 기본값 NONE은 "미지정" 상태.
+     * Vanilla OP level. The default NONE denotes an "unspecified" state.
      */
-    PermissionLevel level() default PermissionLevel.NONE;
+    PermissionLevel permission() default PermissionLevel.NONE;
 
     /**
-     * 커스텀 동적 퍼미션 체커 클래스.
+     * A custom dynamic permission checker class.
      */
     Class<? extends SSCPermissionChecker> custom() default SSCPermissionChecker.class;
 
     /**
-     * true이면 하위 서브커맨드에도 이 권한이 전파됩니다.
-     * false(기본값)이면 이 커맨드의 execute에만 적용됩니다.
+     * If true, this permission requirement cascades to subcommands.
+     * If false (default), it applies only to this command's execute.
      */
     boolean propagate() default false;
 }
