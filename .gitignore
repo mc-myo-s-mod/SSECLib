@@ -120,3 +120,6 @@ runs/
 
 # Secret properties (signing keys, credentials)
 secret.properties
+
+.vscode/
+.idea/
