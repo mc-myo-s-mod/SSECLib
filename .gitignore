@@ -123,3 +123,4 @@ secret.properties
 
 .vscode/
 .idea/
+secring.gpg
