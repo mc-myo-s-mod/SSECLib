@@ -375,9 +375,20 @@ public class CommandRegistrar {
                             alias, parts[0], parts[0]));
         }
 
-        // Create the last segment as a redirect
-        LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1])
-                .redirect(targetNode);
+        // Create the last segment by copying executor and children from the target
+        // node instead of using redirect, since redirect does not invoke the target's
+        // executor (it only exposes children). This fixes alias commands that have an
+        // executor but no children (leaf commands).
+        LiteralArgumentBuilder<CommandSourceStack> innermost = Commands.literal(parts[parts.length - 1]);
+        if (targetNode.getCommand() != null) {
+            innermost.executes(targetNode.getCommand());
+        }
+        for (CommandNode<CommandSourceStack> child : targetNode.getChildren()) {
+            innermost.then(child);
+        }
+        if (targetNode.getRequirement() != null) {
+            innermost.requires(targetNode.getRequirement());
+        }
 
         // Wrap if there are intermediate segments
         for (int i = parts.length - 2; i >= 1; i--) {
@@ -529,7 +540,10 @@ public class CommandRegistrar {
                                 }
                             }
                         }
-                        method.invoke(null, args);
+                        Object result = method.invoke(null, args);
+                        if (result instanceof Integer) {
+                            return (Integer) result;
+                        }
                         return 1; // Success
                     } catch (Exception e) {
                         LOGGER.error("Error executing command", e);

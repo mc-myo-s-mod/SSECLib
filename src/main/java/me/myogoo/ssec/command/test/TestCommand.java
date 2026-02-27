@@ -13,7 +13,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 
 @SSCommand("ssec")
-@SSCAlias({ "ssc" })
+@SSCAlias({ "ssc", "스섹" })
 @SSCPermission(permission = PermissionLevel.GAME_MASTER)
 @SSECDebug
 public class TestCommand {
@@ -39,6 +39,7 @@ public class TestCommand {
     }
 
     @SSCommand(value = "tp", parent = TestCommand.class)
+    @SSCAlias({ "티피", "순가이동", "ttp" })
     public static class TPCommand {
         @SSCExecute
         public static void execute(CommandContext<CommandSourceStack> ctx,
@@ -46,6 +47,15 @@ public class TestCommand {
             ctx.getSource().sendSuccess(
                     () -> Component.literal(String.format("Teleporting to: (%.2f, %.2f, %.2f)", vec.x, vec.y, vec.z)),
                     false);
+        }
+    }
+
+    @SSCommand(value = "alias", parent = TestCommand.class)
+    @SSCAlias({ "얼라", "aaa" })
+    public static class AliasCommand {
+        @SSCExecute
+        public static void excute(CommandContext<CommandSourceStack> ctx) {
+            ctx.getSource().sendSuccess(() -> Component.literal("sdssd"), false);
         }
     }
 }
