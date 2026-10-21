@@ -1,6 +1,33 @@
 # SSECLib (Super Sexy Event & Command Library)
 
-Minecraft Fabric 기반의 **어노테이션 드리븐 커맨드 & 이벤트 프레임워크**입니다.  
+## 독립 프로젝트와 내부 명령어 라이브러리
+
+SSEC는 `Minecraft/SSECLib`의 별도 저장소로 분리되어 있습니다. 기존 루트 빌드는
+Fabric 26.1.2 이벤트 모드(`me.myogoo:ssec:26.1.2+0.1`)를 유지합니다. `common/src/main/java`의 명령어 엔진은
+`neoforge-1-21-1`(Java 21), `forge-1-20-1`(Java 17), `neoforge-26-1-2`(Java 25)에서
+각각 라이브러리로 빌드합니다. 각 폴더에서 `gradlew.bat build`를 실행합니다.
+
+Myotus는 옆 폴더의 SSEC 소스를 Gradle composite build로 참조하고 Jar-in-Jar로
+내장합니다. 사용자가 SSEC를 따로 설치할 필요는 없습니다. 내부 라이브러리는
+자동 스캔이나 모드 초기화를 실행하지 않으며, 호스트가 명령어 등록 이벤트에서
+`CommandRegistrar.registerAll`에 디스패처·빌드 컨텍스트·명령어 클래스·개발 모드
+여부를 전달합니다. 아래 Fabric entrypoint 안내는 독립 이벤트 모드용입니다.
+
+루트 Fabric 모드도 같은 26.1.2 명령 라이브러리를 Fabric Jar-in-Jar로 내장합니다.
+라이브러리는 Minecraft·Brigadier·SLF4J API만 사용하며 NeoForge 런타임에는
+의존하지 않습니다. 폴더 이름은 컴파일 대상을 나타냅니다. 이벤트 기능과 자동
+스캔은 Fabric 루트에만 있으며 Forge/NeoForge 라이브러리에는 포함하지 않습니다.
+명령어는 SSEC 어노테이션을 씁니다.
+
+Forge는 개발용 Mojang 매핑 JAR과 내장 배포용 SRG 매핑 JAR을 구분합니다.
+Myotus의 Jar-in-Jar만 `production` capability를 선택합니다. 1.20.1에 없는
+Minecraft 타입을 쓰는 display-slot·score-holder·slot-range·style 어댑터 4종은
+해당 버전에서 제외합니다.
+명령어 라이브러리 좌표는 현재 로컬/composite용 SNAPSHOT입니다. 이를 의존하는
+Maven 릴리스 전에 라이브러리도 발행하고, Myotus CI의 `SSEC_REF`를 같은 소스
+리비전으로 고정해야 합니다.
+
+Minecraft Fabric 기반의 **어노테이션 드리븐 커맨드 & 이벤트 프레임워크**입니다.
 Brigadier 보일러플레이트 없이 어노테이션만으로 커맨드와 이벤트를 등록할 수 있습니다.
 
 > 🇺🇸 [English](../README.md)
@@ -164,11 +191,11 @@ public class MyEvents {
 | 규칙 | 예시 | 결과 |
 |---|---|---|
 | **절대 경로** (`/`로 시작) | `@SSCAlias("/s")` | `/s` |
-| **절대 경로 (다중)** | `@SSCAlias("/other/sub")` | `/other sub` (other 커맨드 필수) |
+| **절대 경로 (다중)** | `@SSCAlias("/other/sub")` | `/other sub` |
 | **상대 경로** (`/` 없이) | `@SSCAlias("alt")` (parent: "test") | `/test alt` |
 | **상대 경로 (다중)** | `@SSCAlias("a/b")` (parent: "test") | `/test a b` |
 
-> ⚠️ 절대 경로에서 참조하는 루트 커맨드가 존재하지 않으면 `IllegalStateException`이 발생합니다.
+> 별칭의 루트가 없으면 생성합니다. 기존 명령어 경로를 별칭으로 덮어쓰지 않으며 상위 권한 검사를 유지합니다.
 
 ---
 
