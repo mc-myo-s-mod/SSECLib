@@ -1,0 +1,37 @@
+group = 'me.myogoo'
+version = '1.0.0-SNAPSHOT'
+
+repositories { mavenCentral() }
+java { withSourcesJar() }
+
+// Compile the same engine against each Minecraft API, with explicit version overrides.
+def sharedJava = file('../common/src/main/java')
+def localJava = file('src/main/java')
+def syncCommon = tasks.register('syncCommonJava', Sync) {
+    from sharedJava
+    into layout.buildDirectory.dir('generated/sources/ssec')
+    inputs.files(fileTree(localJava)).withPropertyName('versionOverrides')
+    exclude { entry -> !entry.directory && new File(localJava, entry.relativePath.pathString).isFile() }
+}
+sourceSets.main.java.srcDir files(layout.buildDirectory.dir('generated/sources/ssec')).builtBy(syncCommon)
+sourceSets.test.java.srcDir '../common/src/test/java'
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.20.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('jar', Jar) {
+    manifest.attributes('FMLModType': 'GAMELIBRARY', 'Automatic-Module-Name': 'me.myogoo.ssec.commands')
+    from('../LICENSE.txt') { rename { 'META-INF/LICENSE-ssec.txt' } }
+}
+publishing {
+    publications {
+        commands(MavenPublication) { from components.java }
+    }
+}

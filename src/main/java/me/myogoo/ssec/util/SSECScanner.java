@@ -152,22 +152,8 @@ public class SSECScanner {
 
         LOGGER.info("[SSEC] Found {} total @SSCommand classes.", allCommandClasses.size());
 
-        // 2. Filter and register only root commands (passing allCommandClasses
-        // entirely)
-        int count = 0;
-        for (Class<?> clazz : allCommandClasses) {
-            SSCommand annotation = clazz.getAnnotation(SSCommand.class);
-
-            // Determine as a root command only if parent() is void.class (default)
-            if (annotation.parent() == void.class) {
-                CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-                    CommandRegistrar.register(dispatcher, registryAccess, clazz, allCommandClasses);
-                });
-                count++;
-                LOGGER.info("[SSEC] Registered root command class: {}", clazz.getSimpleName());
-            }
-        }
-
-        LOGGER.info("[SSEC] Total {} root command classes registered.", count);
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
+                CommandRegistrar.registerAll(dispatcher, registryAccess, allCommandClasses, isDev));
+        LOGGER.info("[SSEC] Command classes will be registered on each command reload.");
     }
 }

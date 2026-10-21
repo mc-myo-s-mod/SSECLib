@@ -40,6 +40,7 @@ dependencies {
 
     // Source: https://mvnrepository.com/artifact/io.github.classgraph/classgraph
     implementation include("io.github.classgraph:classgraph:4.8.184")
+    implementation include("me.myogoo:ssec-commands-26.1.2:1.0.0-SNAPSHOT")
 }
 
 processResources {
@@ -75,7 +76,7 @@ java {
 }
 
 jar {
-    from("LICENSE") {
+    from("LICENSE.txt") {
         rename { "${it}_${project.archives_base_name}" }
     }
 }

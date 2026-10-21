@@ -1,9 +1,46 @@
 # SSECLib (Super Sexy Event & Command Library)
 
-An **annotation-driven command & event framework** for Minecraft Fabric.  
+An **annotation-driven command & event framework** for Minecraft Fabric.
 Register commands and events with annotations only — no Brigadier boilerplate required.
 
 > 🇰🇷 [한국어 문서 (Korean)](readme/kor.md)
+
+## Embedded command libraries
+
+The repository lives independently at `Minecraft/SSECLib`. The root build retains the
+Fabric 26.1.2 event mod (`me.myogoo:ssec:26.1.2+0.1`). The command engine and
+annotations are shared in `common/src/main/java` and built as libraries:
+
+| Build directory | Minecraft / loader API | Java | Artifact |
+| --- | --- | --- | --- |
+| `neoforge-1-21-1` | 1.21.1 NeoForge | 21 | `me.myogoo:ssec-commands-1.21.1` |
+| `forge-1-20-1` | 1.20.1 Forge | 17 | `me.myogoo:ssec-commands-1.20.1` |
+| `neoforge-26-1-2` | 26.1.2 NeoForge | 25 | `me.myogoo:ssec-commands-26.1.2` |
+
+Each library has its own Gradle wrapper because ForgeGradle requires Gradle 8 while
+26.1.2 uses Gradle 9. Run `gradlew.bat build` from the relevant directory. Myotus
+uses composite builds from a sibling SSEC checkout and embeds the resulting library
+with Jar-in-Jar; players need no separate SSEC installation. The standalone Fabric mod
+embeds the same loader-neutral 26.1.2 command artifact using Fabric Jar-in-Jar.
+Its commands use only Minecraft, Brigadier and SLF4J APIs; the NeoForge build
+directory names the compilation target, not a runtime loader dependency.
+Event registration and automatic discovery remain specific to the Fabric mod.
+
+Forge publishes a development variant with Mojang names and a `production` capability
+with SRG names for Jar-in-Jar. Myotus selects the latter only for packaging.
+The 1.20.1 library omits the native display-slot, score-holder, slot-range and style
+adapters because their Minecraft types are unavailable there. The command artifacts are currently local/composite snapshots.
+Publish matching command-library artifacts before publishing a Maven release that
+depends on them, and pin Myotus CI's `SSEC_REF` to that source revision.
+
+Embedded hosts pass their loader's `CommandDispatcher`, `CommandBuildContext`,
+command classes and development flag to `CommandRegistrar.registerAll`. They own
+annotation discovery and event lifecycle; the library starts no scanners or mods.
+The Fabric entrypoint instructions below apply to the standalone event mod.
+
+Commands use the SSEC annotations. Invalid permission declarations fail closed,
+and absolute aliases retain ancestor permissions. String permission nodes still
+require the existing external permission bridge; absent bridges deny access.
 
 ---
 
@@ -164,11 +201,11 @@ public class MyEvents {
 | Rule | Example | Result |
 |---|---|---|
 | **Absolute** (starts with `/`) | `@SSCAlias("/s")` | `/s` |
-| **Absolute multi-segment** | `@SSCAlias("/other/sub")` | `/other sub` (requires `other` command) |
+| **Absolute multi-segment** | `@SSCAlias("/other/sub")` | `/other sub` |
 | **Relative** (no leading `/`) | `@SSCAlias("alt")` on child of "test" | `/test alt` |
 | **Relative multi-segment** | `@SSCAlias("a/b")` on child of "test" | `/test a b` |
 
-> ⚠️ An `IllegalStateException` is thrown if the root command referenced by an absolute path does not exist.
+> Missing alias roots are created. Existing command paths are not overwritten by an alias, and ancestor permission checks are retained.
 
 ---
 
