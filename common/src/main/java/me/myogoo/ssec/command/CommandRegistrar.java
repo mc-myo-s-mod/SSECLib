@@ -34,7 +34,7 @@ public class CommandRegistrar {
             try {
                 CommandMetadata.CommandInfo command = CommandMetadata.getCommandInfo(clazz);
                 if (command != null && command.parent() == void.class) {
-                    Registration registration = buildAndRegister(dispatcher, buildContext, clazz, filtered);
+                    Registration registration = buildAndRegister(dispatcher, buildContext, clazz, filtered, developmentMode);
                     if (registration != null) {
                         registrations.add(registration);
                     }
@@ -63,7 +63,7 @@ public class CommandRegistrar {
         List<Class<?>> candidates = new ArrayList<>(allCommandClasses);
         candidates.add(clazz);
         Registration registration = buildAndRegister(dispatcher, buildContext, clazz,
-                discover(candidates, true));
+                discover(candidates, true), true);
         if (registration != null) {
             registerAliases(dispatcher, registration);
         }
@@ -71,12 +71,16 @@ public class CommandRegistrar {
 
     private static Registration buildAndRegister(CommandDispatcher<CommandSourceStack> dispatcher,
                                          CommandBuildContext buildContext, Class<?> clazz,
-                                         List<Class<?>> commandClasses) {
+                                         List<Class<?>> commandClasses, boolean developmentMode) {
         try {
             Set<Class<?>> builtClasses = new LinkedHashSet<>();
             LiteralArgumentBuilder<CommandSourceStack> builder = CommandNodeBuilder.build(
-                    buildContext, clazz, commandClasses, builtClasses, new LinkedHashSet<>());
+                    buildContext, clazz, commandClasses, builtClasses, new LinkedHashSet<>(), developmentMode);
             if (builder == null) {
+                return null;
+            }
+            if (dispatcher.getRoot().getChild(builder.getLiteral()) != null) {
+                LOGGER.warn("Skipping SSEC command '{}' because that root already exists.", builder.getLiteral());
                 return null;
             }
             LiteralCommandNode<CommandSourceStack> node = dispatcher.register(builder);

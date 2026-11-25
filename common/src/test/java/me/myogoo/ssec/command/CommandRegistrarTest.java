@@ -6,6 +6,8 @@ import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+import com.mojang.brigadier.LiteralMessage;
 import me.myogoo.ssec.api.SSECDebug;
 import me.myogoo.ssec.api.command.SSCAlias;
 import me.myogoo.ssec.api.command.SSCArgument;
@@ -78,6 +80,8 @@ class CommandRegistrarTest {
         assertNull(malformed.getChild("duplicate"));
         assertNull(malformed.getChild("instance"));
         assertNull(malformed.getChild("invalidPermission"));
+        assertNull(malformed.getChild("injected"));
+        assertNull(malformed.getCommand());
         assertEquals(7, dispatcher.execute("malformed valid", ALLOWED));
     }
 
@@ -86,9 +90,11 @@ class CommandRegistrarTest {
         var production = register(DebugRoot.class, false);
         assertNull(production.getRoot().getChild("debugRoot").getChild("debug"));
         assertNull(production.getRoot().getChild("debugShortcut"));
+        assertNull(production.getRoot().getChild("debugRoot").getChild("method"));
         var development = register(DebugRoot.class, true);
         assertEquals(7, development.execute("debugRoot debug", ALLOWED));
         assertEquals(7, development.execute("debugShortcut", ALLOWED));
+        assertEquals(7, development.execute("debugRoot method", ALLOWED));
         assertNull(register(DebugRoot.class, false).getRoot().getChild("debugShortcut"));
     }
 
@@ -98,6 +104,25 @@ class CommandRegistrarTest {
         dispatcher.register(LiteralArgumentBuilder.<CommandSourceStack>literal("secureShortcut").executes(context -> 42));
         CommandRegistrar.register(dispatcher, Secured.class);
         assertEquals(42, dispatcher.execute("secureShortcut", DENIED));
+    }
+
+    @Test
+    void rootCollisionDoesNotMergeCommandsOrAliases() throws Exception {
+        var dispatcher = new CommandDispatcher<CommandSourceStack>();
+        dispatcher.register(LiteralArgumentBuilder.<CommandSourceStack>literal("secured").executes(context -> 42));
+        CommandRegistrar.register(dispatcher, Secured.class);
+        assertEquals(42, dispatcher.execute("secured", DENIED));
+        assertNull(dispatcher.getRoot().getChild("secured").getChild("child"));
+        assertNull(dispatcher.getRoot().getChild("secureShortcut"));
+    }
+
+    @Test
+    void malformedLiteralsAndCollidingChildrenAreSkipped() throws Exception {
+        var dispatcher = new CommandDispatcher<CommandSourceStack>();
+        CommandRegistrar.registerAll(dispatcher, null, List.of(InvalidLiteral.class, CollidingChild.class), true);
+        assertNull(dispatcher.getRoot().getChild("bad name"));
+        assertEquals(7, dispatcher.execute("collision same", ALLOWED));
+        assertNull(dispatcher.getRoot().getChild("childShortcut"));
     }
 
     @Test
@@ -129,6 +154,22 @@ class CommandRegistrarTest {
         assertEquals(11, first.execute("adapter token", ALLOWED));
         assertEquals(22, second.execute("adapter token", ALLOWED));
         assertEquals(0, second.execute("adapter fail", ALLOWED));
+    }
+
+    @Test
+    void syntaxExceptionsFromCommandsAndAdaptersReachBrigadier() {
+        var dispatcher = new CommandDispatcher<CommandSourceStack>();
+        CommandRegistrar.registerAdapter(SyntaxToken.class, new SSCArgumentAdapter<SyntaxToken>() {
+            public ArgumentType<?> argumentType(CommandBuildContext context) { return StringArgumentType.word(); }
+            public SyntaxToken value(CommandContext<CommandSourceStack> context, String name) throws Exception {
+                throw SYNTAX_ERROR.create();
+            }
+        });
+        CommandRegistrar.register(dispatcher, SyntaxCommand.class);
+        assertEquals("expected syntax", assertThrows(CommandSyntaxException.class,
+                () -> dispatcher.execute("syntax method", ALLOWED)).getRawMessage().getString());
+        assertEquals("expected syntax", assertThrows(CommandSyntaxException.class,
+                () -> dispatcher.execute("syntax adapter value", ALLOWED)).getRawMessage().getString());
     }
 
     private static SSCArgumentAdapter<Token> adapter(CommandBuildContext expected, int result) {
@@ -170,6 +211,13 @@ class CommandRegistrarTest {
 
     @SSCommand("earlyAlias") @SSCAlias("/secured/extra")
     static class EarlyAlias { @SSCExecute static int execute() { return 7; } }
+
+    @SSCommand("bad name") static class InvalidLiteral { }
+    @SSCommand("collision") static class CollidingChild {
+        @SSCExecute("same") static int execute() { return 7; }
+        @SSCommand(value = "same", parent = CollidingChild.class) @SSCAlias("/childShortcut")
+        static class Child { @SSCExecute static int execute() { return 42; } }
+    }
 
     @SSCommand("descendant") @SSCAlias("/descendant/child/again")
     static class DescendantAlias {
@@ -225,16 +273,26 @@ class CommandRegistrarTest {
         static int duplicate(@SSCArgument("same") int first, @SSCArgument("same") int second) { return 1; }
         @SSCExecute("instance") int instance() { return 1; }
         @SSCExecute("invalidPermission") @SSCPermission static int invalidPermission() { return 1; }
+        @SSCExecute("injected") static int injected(@SSCArgument("source") CommandSourceStack source) { return 1; }
+        @SSCExecute("///") static int invalidPath() { return 1; }
         @SSCExecute("valid") static int valid() { return 7; }
     }
 
     @SSCommand("debugRoot")
     static class DebugRoot {
+        @SSCExecute static int normal() { return 1; }
+        @SSCExecute("method") @SSECDebug static int method() { return 7; }
         @SSCommand(value = "debug", parent = DebugRoot.class) @SSECDebug @SSCAlias("/debugShortcut")
         static class Debug { @SSCExecute static int execute() { return 7; } }
     }
 
     record Token(int result) { }
+    private static final SimpleCommandExceptionType SYNTAX_ERROR = new SimpleCommandExceptionType(new LiteralMessage("expected syntax"));
+    record SyntaxToken() { }
+    @SSCommand("syntax") static class SyntaxCommand {
+        @SSCExecute("method") static int method() throws CommandSyntaxException { throw SYNTAX_ERROR.create(); }
+        @SSCExecute("adapter") static int adapter(@SSCArgument("value") SyntaxToken value) { return 1; }
+    }
     @SSCommand("adapter")
     static class AdapterCommand {
         @SSCExecute static int execute(@SSCArgument("value") Token value) { return value.result(); }

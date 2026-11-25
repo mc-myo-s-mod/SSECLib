@@ -5,7 +5,13 @@ on:
     branches: [ "master" ]
   push:
     branches: [ "master" ]
-    tags: [ "v*" ]
+    tags: [ "v*", "commands-v*" ]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Command library release version (defaults to the Gradle project version)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -48,8 +54,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew build -x javadoc
+      - name: Build and test
+        run: ./gradlew build test
+
+      - name: Verify local command publication
+        if: matrix.module != '.'
+        run: |
+          ./gradlew publishToMavenLocal
+          python3 ../.github/verify-command-publication.py
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -98,3 +110,55 @@ jobs:
           MAVEN_PW: ${{ secrets.MAVEN_PW }}
           GPG_SECRET_KEY: ${{ secrets.GPG_SECRET_KEY }}
           GPG_PASSWORD: ${{ secrets.GPG_PASSWORD }}
+
+  publish-commands:
+    name: Release commands from ${{ matrix.module }}
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/commands-v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: forge-1-20-1
+            java: 17
+          - module: neoforge-1-21-1
+            java: 21
+          - module: neoforge-26-1-2
+            java: 25
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: gradle
+      - name: Select release version
+        env:
+          INPUT_VERSION: ${{ inputs.release_version }}
+        run: |
+          version="$INPUT_VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            version="${GITHUB_REF_NAME#commands-v}"
+          elif [[ -z "$version" ]]; then
+            exit 0
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ || "$version" == *-SNAPSHOT ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+          echo "ORG_GRADLE_PROJECT_ssec_commands_version=$version" >> "$GITHUB_ENV"
+      - name: Publish and release command library
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_ID }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PW }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.GPG_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSWORD }}
+        run: |
+          : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?Missing GPG_IN_MEMORY_KEY}"
+          chmod +x ./gradlew
+          ./gradlew publishAndReleaseToMavenCentral

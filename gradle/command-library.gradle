@@ -1,8 +1,9 @@
+apply plugin: 'com.vanniktech.maven.publish'
+
 group = 'me.myogoo'
-version = '1.0.0-SNAPSHOT'
+version = providers.gradleProperty('ssec_commands_version').getOrElse('1.0.0')
 
 repositories { mavenCentral() }
-java { withSourcesJar() }
 
 // Compile the same engine against each Minecraft API, with explicit version overrides.
 def sharedJava = file('../common/src/main/java')
@@ -19,6 +20,11 @@ sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.addStringOption('Xdoclint:none', '-quiet')
+    failOnError = false
+}
 tasks.withType(Test).configureEach { useJUnitPlatform() }
 dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
@@ -30,8 +36,38 @@ tasks.named('jar', Jar) {
     manifest.attributes('FMLModType': 'GAMELIBRARY', 'Automatic-Module-Name': 'me.myogoo.ssec.commands')
     from('../LICENSE.txt') { rename { 'META-INF/LICENSE-ssec.txt' } }
 }
-publishing {
-    publications {
-        commands(MavenPublication) { from components.java }
+mavenPublishing {
+    configureBasedOnAppliedPlugins()
+    coordinates(project.group.toString(), project.name, project.version.toString())
+    if (tasks.findByName('publishToMavenCentral') == null) {
+        publishToMavenCentral()
+    }
+    if (providers.gradleProperty('signingInMemoryKey').isPresent() && !plugins.hasPlugin('signing')) {
+        signAllPublications()
+    }
+    pom {
+        name = 'SSEC Command Library'
+        description = 'Annotation-driven command library for Minecraft'
+        url = 'https://github.com/mc-myo-s-mod/SSECLib'
+        licenses { license {
+            name = 'GNU Lesser General Public License v3.0'
+            url = 'https://www.gnu.org/licenses/lgpl-3.0.html'
+        } }
+        developers { developer {
+            id = 'myogoo'
+            name = 'myogoo'
+        } }
+        scm {
+            url = 'https://github.com/mc-myo-s-mod/SSECLib'
+            connection = 'scm:git:https://github.com/mc-myo-s-mod/SSECLib.git'
+            developerConnection = 'scm:git:ssh://git@github.com/mc-myo-s-mod/SSECLib.git'
+        }
+    }
+}
+
+if (!providers.gradleProperty('signingInMemoryKey').isPresent()) {
+    plugins.withId('signing') {
+        signing { required = false }
+        tasks.withType(Sign).configureEach { enabled = false }
     }
 }

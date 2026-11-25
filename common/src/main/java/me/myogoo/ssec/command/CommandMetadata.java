@@ -43,8 +43,8 @@ final class CommandMetadata {
                 permission.propagate(), permission.value());
     }
 
-    static boolean isDebugOnly(Class<?> clazz) {
-        return clazz.isAnnotationPresent(SSECDebug.class);
+    static boolean isDebugOnly(AnnotatedElement element) {
+        return element.isAnnotationPresent(SSECDebug.class);
     }
 
     record CommandInfo(String value, Class<?> parent) {

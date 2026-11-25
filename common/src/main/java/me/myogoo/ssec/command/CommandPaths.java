@@ -3,8 +3,9 @@ package me.myogoo.ssec.command;
 import me.myogoo.ssec.command.CommandMetadata.CommandInfo;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.StringJoiner;
+import java.util.Set;
 
 final class CommandPaths {
     private CommandPaths() {
@@ -24,26 +25,20 @@ final class CommandPaths {
     }
 
     static List<String> resolveAlias(String alias, List<String> parentPath) {
-        if (alias == null || alias.isBlank()) {
-            return List.of();
+        List<String> segments = split(alias);
+        if (segments.isEmpty() || alias.stripLeading().startsWith("/")) {
+            return segments;
         }
-        if (alias.startsWith("/")) {
-            return split(alias.substring(1));
-        }
-
-        StringJoiner joiner = new StringJoiner("/");
-        for (String segment : parentPath) {
-            joiner.add(segment);
-        }
-        joiner.add(alias);
-        return split(joiner.toString());
+        List<String> path = new ArrayList<>(parentPath);
+        path.addAll(segments);
+        return path;
     }
 
     static List<String> resolveCommandPath(Class<?> childClass, Class<?> rootClass) {
         List<String> path = new ArrayList<>();
         Class<?> current = childClass;
-        int maxDepth = 32;
-        while (current != null && maxDepth-- > 0) {
+        Set<Class<?>> visited = new HashSet<>();
+        while (current != null && visited.add(current)) {
             CommandInfo command = CommandMetadata.getCommandInfo(current);
             if (command == null) {
                 return null;
