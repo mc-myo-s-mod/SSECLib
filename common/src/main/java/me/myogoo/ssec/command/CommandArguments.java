@@ -1,6 +1,7 @@
 package me.myogoo.ssec.command;
 
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import me.myogoo.ssec.api.command.argument.SSCArgumentAdapter;
 import me.myogoo.ssec.command.argument.SSCBooleanArgument;
 import me.myogoo.ssec.command.argument.SSCDoubleArgument;
@@ -55,7 +56,15 @@ final class CommandArguments {
             if (contextType == CommandSourceStack.class) {
                 return context.getSource();
             }
-            return adapter.value(context, name);
+            try {
+                return adapter.value(context, name);
+            } catch (RuntimeException exception) {
+                // Older adapters wrap Minecraft's checked syntax errors.
+                if (exception.getCause() instanceof CommandSyntaxException syntax) {
+                    throw syntax;
+                }
+                throw exception;
+            }
         }
     }
 }

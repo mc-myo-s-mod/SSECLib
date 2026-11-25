@@ -1,6 +1,6 @@
 plugins {
     id 'java-library'
-    id 'maven-publish'
+    id 'com.vanniktech.maven.publish' version '0.36.0' apply false
     id 'net.minecraftforge.gradle' version '[6.0.16,6.2)'
 }
 
@@ -26,7 +26,8 @@ def devJar = tasks.register('devJar', Jar) {
     it.outgoing.artifact(devJar)
 }
 configurations.productionRuntimeElements.outgoing.artifacts.clear()
-configurations.productionRuntimeElements.outgoing.artifact(tasks.named('jar')) { builtBy 'reobfJar' }
+def reobfuscation = providers.provider { tasks.getByName('reobfJar') }
+configurations.productionRuntimeElements.outgoing.artifact(tasks.named('jar')) { builtBy reobfuscation }
 
 // These Minecraft types were introduced after 1.20.1.
 tasks.named('syncCommonJava') {
@@ -35,3 +36,7 @@ tasks.named('syncCommonJava') {
     exclude 'me/myogoo/ssec/command/argument/SSCSlotRangeArgument.java'
     exclude 'me/myogoo/ssec/command/argument/SSCStyleArgument.java'
 }
+
+// Composite builds select the development variant. Repository consumers use the SRG main artifact.
+tasks.withType(GenerateModuleMetadata).configureEach { enabled = false }
+publishing.publications.maven.artifacts.find { it.classifier == null }.builtBy reobfuscation

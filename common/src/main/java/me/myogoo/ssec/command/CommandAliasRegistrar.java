@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.tree.CommandNode;
+import com.mojang.brigadier.tree.LiteralCommandNode;
 import me.myogoo.ssec.command.CommandMetadata.AliasInfo;
 import net.minecraft.commands.CommandSourceStack;
 import org.slf4j.Logger;
@@ -53,9 +54,18 @@ final class CommandAliasRegistrar {
             return;
         }
         // Brigadier merges commands but retains the old requirement, which could bypass alias permissions.
-        if (findNode(dispatcher, segments) != null) {
-            LOGGER.warn("Skipping SSEC alias '{}' because that command path already exists.", alias);
-            return;
+        CommandNode<CommandSourceStack> parent = dispatcher.getRoot();
+        int firstNew = 0;
+        for (; firstNew < segments.size(); firstNew++) {
+            CommandNode<CommandSourceStack> next = parent.getChild(segments.get(firstNew));
+            if (next == null) {
+                break;
+            }
+            if (!(next instanceof LiteralCommandNode<?>) || next.getRedirect() != null || firstNew == segments.size() - 1) {
+                LOGGER.warn("Skipping SSEC alias '{}' because it conflicts with an existing command node.", alias);
+                return;
+            }
+            parent = next;
         }
         LiteralArgumentBuilder<CommandSourceStack> current = LiteralArgumentBuilder.<CommandSourceStack>literal(segments.get(segments.size() - 1));
         current.requires(ancestors.and(target.getRequirement()));
@@ -65,23 +75,10 @@ final class CommandAliasRegistrar {
         for (CommandNode<CommandSourceStack> child : target.getChildren()) {
             current.then(copyNode(child));
         }
-        for (int i = segments.size() - 2; i >= 1; i--) {
-            LiteralArgumentBuilder<CommandSourceStack> parent = LiteralArgumentBuilder.<CommandSourceStack>literal(segments.get(i));
-            parent.then(current);
-            current = parent;
+        for (int i = segments.size() - 2; i >= firstNew; i--) {
+            current = LiteralArgumentBuilder.<CommandSourceStack>literal(segments.get(i)).then(current);
         }
-        if (segments.size() == 1) {
-            dispatcher.register(current);
-            return;
-        }
-        CommandNode<CommandSourceStack> root = dispatcher.getRoot().getChild(segments.get(0));
-        if (root != null) {
-            root.addChild(current.build());
-        } else {
-            LiteralArgumentBuilder<CommandSourceStack> newRoot = LiteralArgumentBuilder.<CommandSourceStack>literal(segments.get(0));
-            newRoot.then(current);
-            dispatcher.register(newRoot);
-        }
+        parent.addChild(current.build());
     }
 
     private static CommandNode<CommandSourceStack> copyNode(CommandNode<CommandSourceStack> node) {

@@ -12,7 +12,7 @@ import java.lang.annotation.Target;
  *
  * <p>
  * If applied at the class level, the entire class becomes dev-mode only.
- * If applied at the method level, only that specific event handler becomes
+ * If applied at the method level, only that specific command or event handler becomes
  * dev-mode only.
  * </p>
  *

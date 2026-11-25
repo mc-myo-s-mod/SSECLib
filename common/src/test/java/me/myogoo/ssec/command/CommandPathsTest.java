@@ -20,19 +20,21 @@ class CommandPathsTest {
     @Test
     void resolveAliasUsesAbsolutePathWhenAliasStartsWithSlash() {
         assertEquals(List.of("global", "reload"),
-                CommandPaths.resolveAlias("/global reload", List.of("myotus", "config")));
+                CommandPaths.resolveAlias("/global reload", List.of("example", "config")));
     }
 
     @Test
     void resolveAliasAppendsRelativePathToParentPath() {
-        assertEquals(List.of("myotus", "config", "set", "value"),
-                CommandPaths.resolveAlias("set value", List.of("myotus", "config")));
+        assertEquals(List.of("example", "config", "set", "value"),
+                CommandPaths.resolveAlias("set value", List.of("example", "config")));
     }
 
     @Test
     void resolveAliasReturnsEmptyPathForBlankAlias() {
-        assertEquals(List.of(), CommandPaths.resolveAlias(null, List.of("myotus")));
-        assertEquals(List.of(), CommandPaths.resolveAlias(" ", List.of("myotus")));
+        assertEquals(List.of(), CommandPaths.resolveAlias(null, List.of("example")));
+        assertEquals(List.of(), CommandPaths.resolveAlias(" ", List.of("example")));
+        assertEquals(List.of(), CommandPaths.resolveAlias(" /// ", List.of("example")));
+        assertEquals(List.of("other"), CommandPaths.resolveAlias(" /other", List.of("example")));
     }
 
     @Test
@@ -46,6 +48,7 @@ class CommandPathsTest {
         assertNull(CommandPaths.resolveCommandPath(BrokenCommand.class, RootCommand.class));
         assertNull(CommandPaths.resolveCommandPath(PlainCommand.class, RootCommand.class));
         assertNull(CommandPaths.resolveCommandPath(ChildCommand.class, LeafCommand.class));
+        assertNull(CommandPaths.resolveCommandPath(CyclicCommand.class, RootCommand.class));
     }
 
     @SSCommand("root")
@@ -65,5 +68,9 @@ class CommandPathsTest {
     }
 
     private static final class PlainCommand {
+    }
+
+    @SSCommand(value = "cyclic", parent = CyclicCommand.class)
+    private static final class CyclicCommand {
     }
 }
